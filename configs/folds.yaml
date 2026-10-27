@@ -1,0 +1,38 @@
+# Expanding-window evaluation folds. Each fold builds a fresh model from scratch.
+# "train_targets" are the seasons whose outcomes the model learns from;
+# features for a target season come only from seasons strictly before it.
+forecast_date_rule: "end of regular season preceding the target season"
+
+folds:
+  - name: fold1
+    train_targets: [2023]
+    test_target: 2024
+    purpose: pipeline sanity check
+  - name: fold2
+    train_targets: [2023, 2024]
+    test_target: 2025
+    purpose: iterate and select models here
+  - name: fold3
+    train_targets: [2023, 2024, 2025]
+    test_target: 2026
+    purpose: FINAL holdout; run once after design freeze (git tag)
+    frozen: false
+
+production:
+  name: prod2027
+  train_targets: [2023, 2024, 2025, 2026]
+  forecast_target: 2027
+
+# Alternate configuration: extra pre-2023 training seasons, compared against the above.
+extended:
+  extra_train_targets: [2016, 2017, 2018, 2019, 2021, 2022]
+  flag_seasons: [2020]  # short season; down-weight or flag
+
+min_pa:
+  feature_season: 100
+  target_season: 100
+
+success_criteria:
+  beats_marcel_mae_on: [fold2, fold3]
+  bootstrap_ci_excludes_zero: true
+  interval_80_coverage_range: [0.75, 0.85]
