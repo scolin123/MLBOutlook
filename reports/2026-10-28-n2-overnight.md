@@ -3,7 +3,7 @@
 > Built from actual command output. Updated after every phase.
 
 ## Summary
-Phase 1 (leakage test and as-of builder core) passed. The skipped leakage placeholder is now 19 real tests, including a poison test and a negative control. Branch: `night/2026-10-28-n2`; `main` untouched. Phase 2 (lag features) passed: `build_features` added and hand-verified on a 3-player fixture. Phase 3 (baselines) passed: `LastSeason`, `Weighted3` and `MarcelBaseline` share a `Forecaster` protocol and match the hand-computed values. Phase 4 (evaluation harness) passed: `fold_frames`, `run_fold`, `run_all` and `paired_bootstrap_mae_diff` with a `FoldNotFrozenError` guard on the holdout. Phases 5-6 have not run yet.
+Phase 1 (leakage test and as-of builder core) passed. The skipped leakage placeholder is now 19 real tests, including a poison test and a negative control. Branch: `night/2026-10-28-n2`; `main` untouched. Phase 2 (lag features) passed: `build_features` added and hand-verified on a 3-player fixture. Phase 3 (baselines) passed: `LastSeason`, `Weighted3` and `MarcelBaseline` share a `Forecaster` protocol and match the hand-computed values. Phase 4 (evaluation harness) passed: `fold_frames`, `run_fold`, `run_all` and `paired_bootstrap_mae_diff` with a `FoldNotFrozenError` guard on the holdout. Phase 5 (ridge forecaster) passed: `RidgeForecaster` (impute, scale, ridge fit only inside `fit`) beats last-season on synthetic data through `run_all`. Phase 6 has not run yet.
 
 ## Phase table
 | Phase | Name | Status (done / partial / skipped / blocked) | Start | End | Commit hash |
@@ -12,7 +12,7 @@ Phase 1 (leakage test and as-of builder core) passed. The skipped leakage placeh
 | 2 | lag features | done | epoch 1793240593 | epoch 1793240658 | see `git log` (`n2 phase 2`) |
 | 3 | baselines | done | epoch 1793240700 | epoch ~1793240740 | see `git log` (`n2 phase 3`) |
 | 4 | evaluation harness | done | epoch 1793240772 | epoch 1793240821 | see `git log` (`n2 phase 4`) |
-| 5 | ridge forecaster | not run | | | |
+| 5 | ridge forecaster | done | epoch 1793240865 | epoch ~1793240960 | see `git log` (`n2 phase 5`) |
 | 6 | morning report | not run | | | |
 
 ## Test results per phase
@@ -36,7 +36,13 @@ Phase 1 (leakage test and as-of builder core) passed. The skipped leakage placeh
 - **Result:** pass. ruff `All checks passed!`; `17 passed` in tests/test_harness.py; import OK; full pytest `123 passed`; `phase 4 verified`.
 - **Fix attempts:** 1 (ruff E501 line length).
 
+### Phase 5
+- **Command:** `VERIFY_SKIP_COMMIT=1 bash scripts/verify_n2.sh 5`
+- **Result:** pass. ruff `All checks passed!`; `11 passed` in tests/test_ridge.py; import OK; full pytest `134 passed`; `phase 5 verified`.
+- **Fix attempts:** 0 (one ruff import-order autofix).
+
 ## Changes
+- Phase 5: `src/mlb_outlook/models/ridge.py` (`RidgeForecaster`), `tests/test_ridge.py` (new).
 - Phase 4: `src/mlb_outlook/evaluation/harness.py` (`fold_frames`, `run_fold`, `run_all`, `paired_bootstrap_mae_diff`, `FoldNotFrozenError`), `tests/test_harness.py` (new).
 - Phase 3: `src/mlb_outlook/models/baselines.py` (`Forecaster`, `LastSeason`, `Weighted3`, `MarcelBaseline`), `tests/test_baselines.py` (new).
 - Phase 2: `src/mlb_outlook/features/asof.py` (`build_features`, `feature_columns`), `tests/test_features_lags.py` (new), `tests/test_no_leakage.py` (extended with `build_features` leakage and poison tests).
@@ -54,11 +60,13 @@ Phase 1 (leakage test and as-of builder core) passed. The skipped leakage placeh
 
 - Phase 4: only `frozen is False` triggers `FoldNotFrozenError`; bootstrap raises `ValueError` on misaligned input; two extra harness tests beyond the spec (factory called once per fold in `run_all`; `run_all` blocks the unfrozen holdout by default).
 
+- Phase 5: `fit` requires `y` (ValueError otherwise); unfitted `predict` raises `RuntimeError`. The synthetic generator needed no change. The truncation leakage test compares ridge predictions on production-mode (`include_target=False`) test features built from full vs truncated data, since truncated data has no test-season target rows.
+
 ## Problems and blockers
 None.
 
 ## What was NOT verified
-- Phases 2-6 not run. The generator's statistical properties (talent, aging) are not tested beyond determinism.
+- Phase 6 not run. The generator's statistical properties (talent, aging) are not tested beyond determinism.
 
 ## Suggested next steps
-1. Run phase 4 (evaluation harness).
+1. Run phase 6 (morning report).

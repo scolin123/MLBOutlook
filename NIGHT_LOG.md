@@ -68,3 +68,11 @@ Append one entry per phase (pass or fail): phase, start/end time, commands run, 
 - Fix attempts: 1 (ruff E501 on the `fold_frames` signature; wrapped the line).
 - Decisions: `FoldNotFrozenError` subclasses `RuntimeError`. Only `frozen is False` triggers the guard (`None`/`True` run freely). `run_fold` returns one row per model in factory order; `run_all` uses a fresh index. Bootstrap resamples pair indices with `default_rng(seed)` and raises `ValueError` on misaligned or empty input. Hand-computed LastSeason mini case: errors +.02, -.04, +.03 give mae 0.03, bias 0.01/3; n_train 2, n_test 3. Extra tests: `run_all` calls each factory once per fold, and `run_all` blocks the unfrozen holdout by default.
 - Blockers: none.
+
+## N2 Phase 5: ridge forecaster — PASS
+- Start: epoch 1793240865 (before cutoff 1793258100). End: epoch ~1793240960.
+- Branch confirmed: night/2026-10-28-n2.
+- Commands: `VERIFY_SKIP_COMMIT=1 bash scripts/verify_n2.sh 5` (ruff clean; test_ridge.py 11 passed; import OK; full pytest 134 passed).
+- Fix attempts: 0 (one ruff import-order autofix in the new test).
+- Decisions: `fit` without `y` raises ValueError; unfitted `predict` raises RuntimeError ("not fitted"). Synthetic generator unchanged (marcel and ridge already beat last_season). Truncation leakage test compares ridge predictions on `include_target=False` test features from full vs truncated data (truncated data has no test-season targets).
+- Blockers: none.
