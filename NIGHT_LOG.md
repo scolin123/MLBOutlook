@@ -52,3 +52,11 @@ Append one entry per phase (pass or fail): phase, start/end time, commands run, 
 - Fix attempts: 0.
 - Decisions: `max_source_season` is the latest lag season with league data (always `target-1` for eligible rows). `age_target` is taken from the player's `target-1` row plus 1. Output sorted by `player_id`; duplicate player-season rows collapse to the first. Added a `feature_columns(lags)` helper for column order. Spec-compliant empty frames keep all columns.
 - Blockers: none.
+
+## N2 Phase 3: baselines — PASS
+- Start: epoch 1793240700 (before cutoff 1793258100). End: epoch ~1793240740.
+- Branch confirmed: night/2026-10-28-n2.
+- Commands: `VERIFY_SKIP_COMMIT=1 bash scripts/verify_n2.sh 3` (ruff clean; test_baselines.py 9 passed; import OK; full pytest 106 passed).
+- Fix attempts: 0. Spec values (0.371613, 0.363243, 0.371961, 0.358884, 0.346767) re-derived by hand and correct as written.
+- Decisions: no usable league rate or no history gives NaN from `Weighted3`/`LastSeason`; `MarcelBaseline` with no PA regresses fully to the league rate (NaN only if all `lg_woba_lag` are NaN). A NaN lag wOBA is passed to `marcel_rate` as rate 0 (its PA is 0 for frames from `build_features`, so it has no effect). Two extra tests beyond the spec (no history 0.319040; renormalised league rate 0.362162, hand-derived).
+- Blockers: none.
