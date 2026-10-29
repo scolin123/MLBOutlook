@@ -33,6 +33,7 @@ CLAUDE_MODEL="${CLAUDE_MODEL:-}"                       # optional model alias or
 
 # Tools the headless agent may use without asking. Everything else is denied (dontAsk).
 ALLOWED_TOOLS=(
+  "Bash(cat *)" "Bash(echo *)" "Bash(head *)" "Bash(tail *)" "Bash(grep *)" "Bash(ls)" "Bash(touch *)" "Bash(tr *)"
   "Read" "Edit" "Write" "Glob" "Grep"
   "Bash(git *)"
   "Bash(uv *)" "Bash(ruff *)" "Bash(pytest *)"
