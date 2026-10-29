@@ -28,8 +28,19 @@ CUTOFF_CLOCK="03:15"        # no new phase after this
 HARD_STOP_CLOCK="04:00"     # everything ends by this
 REPORT_RESERVE_SECS=600     # time reserved at the end for the report pass
 PHASE_TIMEOUT_SECS="${PHASE_TIMEOUT_SECS:-3000}"       # 50 min cap per phase
-PERMISSION_MODE="${PERMISSION_MODE:-dontAsk}"          # dontAsk = anything not allowed below is denied
+PERMISSION_MODE="${PERMISSION_MODE:-auto}"             # auto = Claude Code judges each action; the deny list below still applies
 CLAUDE_MODEL="${CLAUDE_MODEL:-}"                       # optional model alias or name
+
+# Plan selection. Default = the original overnight plan (phases 1-3, report = 4).
+# NIGHT_PLAN=n2 selects docs/PLAN_N2.md (phases 1-5, report = 6). Use a separate NIGHT_DATE per run.
+PLAN_FILE="docs/PLAN.md"; VERIFY_SCRIPT="scripts/verify_phase.sh"
+BUILD_PHASES="1 2 3"; REPORT_PHASE=4; COMMIT_PREFIX="phase "
+case "${NIGHT_PLAN:-}" in
+  n2) PLAN_FILE="docs/PLAN_N2.md"; VERIFY_SCRIPT="scripts/verify_n2.sh"
+      BUILD_PHASES="1 2 3 4 5"; REPORT_PHASE=6; COMMIT_PREFIX="n2 phase " ;;
+  "") ;;
+  *) echo "night_run: unknown NIGHT_PLAN '${NIGHT_PLAN}'" >&2; exit 1 ;;
+esac
 
 # Tools the headless agent may use without asking. Everything else is denied (dontAsk).
 ALLOWED_TOOLS=(
@@ -65,6 +76,17 @@ log() {
 die() { echo "night_run: $*" >&2; exit 1; }
 
 phase_name() {
+  if [ "${NIGHT_PLAN:-}" = "n2" ]; then
+    case "$1" in
+      1) echo "leakage test and as-of builder core" ;;
+      2) echo "lag features" ;;
+      3) echo "baselines" ;;
+      4) echo "evaluation harness" ;;
+      5) echo "ridge forecaster" ;;
+      6) echo "morning report" ;;
+    esac
+    return
+  fi
   case "$1" in
     1) echo "bootstrap verification" ;;
     2) echo "folds config validator" ;;
@@ -101,7 +123,7 @@ run_facts() {
 phase_prompt() {
   cat <<EOF
 You are running unattended as part of an overnight run. Nobody will answer questions, so follow the plan exactly.
-Read docs/PLAN.md (the RULES section first) and NIGHT_LOG.md. Execute ONLY Phase $1 ("$(phase_name "$1")") as written, following the rules.
+Read $PLAN_FILE (the RULES section first) and NIGHT_LOG.md. Execute ONLY Phase $1 ("$(phase_name "$1")") as written, following the rules.
 $(run_facts)
 Confirm you are on branch $BRANCH before changing anything. When the phase ends, update NIGHT_LOG.md and reports/${NIGHT_DATE}-overnight.md, write PASS or FAIL to .night/status/phase-$1, and commit as the plan specifies.
 Do not start any other phase.
@@ -110,11 +132,11 @@ EOF
 
 report_prompt() {
   cat <<EOF
-You are running unattended as part of an overnight run. Execute ONLY Phase 4 ("morning report") from docs/PLAN.md, following the rules and docs/REPORT_TEMPLATE.md. Do no build work.
+You are running unattended as part of an overnight run. Execute ONLY Phase $REPORT_PHASE ("morning report") from $PLAN_FILE, following the rules and docs/REPORT_TEMPLATE.md. Do no build work.
 $(run_facts)
 Why the build loop ended: $STOP_REASON
-Generate the report from actual command output (re-run: VERIFY_SKIP_COMMIT=1 bash scripts/verify_phase.sh N for each phase that claims PASS) and from git log, not from memory. Phases that did not run are skipped or blocked, with that reason. List uncommitted leftovers under Problems; do not commit them.
-Write reports/${NIGHT_DATE}-overnight.md, update NIGHT_LOG.md, write PASS or FAIL to .night/status/phase-4, and commit only the report and log as "phase 4: morning report".
+Generate the report from actual command output (re-run: VERIFY_SKIP_COMMIT=1 bash $VERIFY_SCRIPT N for each phase that claims PASS) and from git log, not from memory. Phases that did not run are skipped or blocked, with that reason. List uncommitted leftovers under Problems; do not commit them.
+Write reports/${NIGHT_DATE}-overnight.md, update NIGHT_LOG.md, write PASS or FAIL to .night/status/phase-$REPORT_PHASE, and commit only the report and log as "${COMMIT_PREFIX}${REPORT_PHASE}: morning report".
 EOF
 }
 
@@ -126,7 +148,7 @@ gate() {
   if [ "$st" != "PASS" ]; then
     GATE_REASON="phase $n: status file says '${st:-<missing>}'"; return 1
   fi
-  if ! bash scripts/verify_phase.sh "$n" >"$LOG_DIR/verify-$n.txt" 2>&1; then
+  if ! bash "$VERIFY_SCRIPT" "$n" >"$LOG_DIR/verify-$n.txt" 2>&1; then
     GATE_REASON="phase $n: independent verification failed (see $LOG_DIR/verify-$n.txt)"; return 1
   fi
   if [ "$(git rev-parse --abbrev-ref HEAD)" != "$BRANCH" ]; then
@@ -146,7 +168,7 @@ stage_loop() {
   . "$STATE_FILE"
   export NIGHT_DATE
   local n now rc
-  for n in 1 2 3; do
+  for n in $BUILD_PHASES; do
     echo "$n" >"$STATE_DIR/current_phase"
     now="$(date +%s)"
     if [ "$now" -ge "$PHASE_CUTOFF_EPOCH" ]; then
@@ -179,7 +201,7 @@ fallback_report() {
     echo "- Stop reason: $STOP_REASON"
     echo "- Branch: $BRANCH"
     echo "- main unchanged: $([ "$(git rev-parse refs/heads/main)" = "$MAIN_SHA" ] && echo yes || echo NO)"
-    for n in 1 2 3 4; do
+    for n in $BUILD_PHASES $REPORT_PHASE; do
       echo "- phase $n status file: $(tr -d '[:space:]' <"$STATUS_DIR/phase-$n" 2>/dev/null || true)"
     done
     echo
@@ -273,11 +295,11 @@ EOF
   report_secs=$((HARD_STOP_EPOCH - now2))
   [ "$report_secs" -gt "$REPORT_RESERVE_SECS" ] && report_secs=$REPORT_RESERVE_SECS
   [ "$report_secs" -lt 120 ] && report_secs=120
-  rm -f "$STATUS_DIR/phase-4"
-  log "phase 4 (morning report): starting (limit ${report_secs}s)"
-  run_claude "phase-4" "$(report_prompt)" "$report_secs"
+  rm -f "$STATUS_DIR/phase-$REPORT_PHASE"
+  log "phase $REPORT_PHASE (morning report): starting (limit ${report_secs}s)"
+  run_claude "phase-$REPORT_PHASE" "$(report_prompt)" "$report_secs"
   rc=$?
-  log "phase 4: claude exited with code $rc"
+  log "phase $REPORT_PHASE: claude exited with code $rc"
   if [ "$rc" -ne 0 ] || [ ! -s "reports/${NIGHT_DATE}-overnight.md" ]; then
     log "report pass failed or empty; writing driver fallback report"
     fallback_report
