@@ -1,4 +1,4 @@
-# MLB Outlook
+# DiamondIQ
 
 *(working title)*
 
@@ -48,7 +48,7 @@ Python, pandas, scikit-learn, MySQL 8 (Docker) via SQLAlchemy + PyMySQL, Parquet
 MySQL is the system of record and feature-query layer (versioned `.sql` schema, keys and indexes, window functions for rolling/lag features, as-of queries). Model fitting happens in pandas/scikit-learn.
 
 ## Dashboard (planned)
-Scouting board (buy-low / sell-high / breakout / regression lists), player profile, player comparison, data coverage and model version, and a limitations page. Player profiles show a percentile panel, season and Statcast tables, spray chart, rolling xwOBA, pitch-mix faced, and a MLB Outlook panel with the forecast and 80% interval, breakout/stable/regression probabilities, observed-vs-expected gap, and comps. The layout is custom; no third-party assets, logos, or headshots are used.
+Scouting board (buy-low / sell-high / breakout / regression lists), player profile, player comparison, data coverage and model version, and a limitations page. Player profiles show a percentile panel, season and Statcast tables, spray chart, rolling xwOBA, pitch-mix faced, and a DiamondIQ panel with the forecast and 80% interval, breakout/stable/regression probabilities, observed-vs-expected gap, and comps. The layout is custom; no third-party assets, logos, or headshots are used.
 
 ## Setup
 ```bash
@@ -64,12 +64,16 @@ pytest
 app/            Streamlit dashboard
 configs/        folds.yaml, data and model configs
 data/           raw/ and processed/ (git-ignored)
-docs/           PLAN.md, methodology, data dictionary, model card
+docs/           PROJECT_PLAN.md (scope, evaluation, timeline), PLAN.md (overnight phases), REPORT_TEMPLATE.md
 notebooks/      data audit and feature analysis
+reports/        overnight run reports
+scripts/        night_run.sh (overnight driver), verify_phase.sh, check_bootstrap.sh
 sql/            versioned schema
 src/mlb_outlook/  ingestion, validation, features, context, models, evaluation, reporting
 tests/
 ```
+
+Project scope, models, and evaluation design: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md). Phased plan for unattended overnight runs: [docs/PLAN.md](docs/PLAN.md), driven by `scripts/night_run.sh`.
 
 ## Roadmap
 Weeks 1-2: data audit, MySQL schema, ID mapping, as-of feature builder, leakage test, Marcel baseline. Weeks 3-5: fold harness, ridge forecaster, intervals, derived breakout probabilities, ablations, design freeze. Weeks 6-7: comps, undervalued ranking, dashboard. Week 8: run fold 3 once, write-up, model card. Week 9: 2027 production forecasts and deploy. Target completion around Jan 1, 2027, with February as buffer.
@@ -88,7 +92,7 @@ If the files below do not exist yet, create them exactly as written, create the 
 ### `pyproject.toml`
 ```toml
 [project]
-name = "mlb_outlook"
+name = "mlb-outlook"
 version = "0.1.0"
 description = "MLB hitter forecasting, breakout/regression probabilities, and buy-low/sell-high scouting."
 readme = "README.md"
@@ -176,7 +180,7 @@ success_criteria:
 services:
   mysql:
     image: mysql:8.4
-    container_name: mlb-outlook-mysql
+    container_name: diamondiq-mysql
     restart: unless-stopped
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
@@ -194,10 +198,10 @@ services:
 ### `.env.example` (copy to `.env`; never commit `.env`)
 ```
 MYSQL_ROOT_PASSWORD=change_me_root
-MYSQL_DATABASE=mlb_outlook
-MYSQL_USER=mlb_outlook
+MYSQL_DATABASE=diamondiq
+MYSQL_USER=diamondiq
 MYSQL_PASSWORD=change_me
-DATABASE_URL=mysql+pymysql://mlb_outlook:change_me@127.0.0.1:3306/mlb_outlook
+DATABASE_URL=mysql+pymysql://diamondiq:change_me@127.0.0.1:3306/diamondiq
 ```
 
 ### `.gitignore`
@@ -210,6 +214,7 @@ __pycache__/
 .pytest_cache/
 .ipynb_checkpoints/
 mysql_data/
+.night/
 
 # data and model artifacts stay out of git
 data/raw/*

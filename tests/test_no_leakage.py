@@ -1,8 +1,9 @@
 """Leakage guard.
 
-Contract: every feature row for target season T is derived only from data dated
-before the forecast date for T. The feature builder must expose, per row,
-`max_source_season` (latest season of any input); this test asserts
+Placeholder until the as-of feature builder exists (week 2). The contract:
+every feature row for target season T must be derived only from data dated
+before the forecast date for T. The builder must expose, per feature row,
+`max_source_season` (the latest season of any input) and the test asserts
 max_source_season < target_season for every row.
 """
 
