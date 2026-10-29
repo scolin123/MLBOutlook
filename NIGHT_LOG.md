@@ -34,3 +34,13 @@ Append one entry per phase (pass or fail): phase, start/end time, commands run, 
 - Commands: `VERIFY_SKIP_COMMIT=1 bash scripts/verify_phase.sh 1`, `... 2`, `... 3` (all exit 0; 40 passed, 1 skipped); `git log --stat`; `git status --short` (clean).
 - Wrote reports/2026-10-28-overnight.md. Stop reason: all build phases passed.
 - Fix attempts: 0. Decisions: none. Blockers: none.
+
+## Night 2 (branch night/2026-10-28-n2)
+
+## N2 Phase 1: leakage test and as-of builder core — PASS
+- Start: epoch 1793240518 (before cutoff 1793258100). End: epoch ~1793240600.
+- Branch confirmed: night/2026-10-28-n2.
+- Commands: `uv run --no-sync ruff check --fix .` (fixed 2 import-order errors, I001, in new test files); `VERIFY_SKIP_COMMIT=1 bash scripts/verify_n2.sh 1` (ruff clean; test_no_leakage.py 19 passed, 0 skipped; import OK; full pytest 59 passed).
+- Fix attempts: 1 (ruff import sorting only).
+- Decisions: tests import the generator as `from synthetic import make_seasons` (tests/ has no `__init__`, pytest puts it on sys.path). Generator draws the career with `rng.integers(3, 10)` (3..9) and truncates at the last season. NaN masking uses one `rng.random` draw per row per column over the whole frame. `build_asof_rows` returns int64 columns sorted by `player_id`, with a fresh RangeIndex.
+- Blockers: none.
