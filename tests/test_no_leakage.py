@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
 
-from mlb_outlook.features.asof import ASOF_COLUMNS, build_asof_rows
+from mlb_outlook.features.asof import ASOF_COLUMNS, build_asof_rows, build_features
 from synthetic import make_seasons
 
 TARGETS = range(2020, 2027)
@@ -101,6 +101,59 @@ def test_counts_and_max_source_season():
     assert rows["player_id"].tolist() == [1, 2]
     assert rows["max_source_season"].tolist() == [2021, 2022]
     assert rows["n_source_seasons"].tolist() == [2, 1]
+
+
+@pytest.mark.parametrize("include_target", [True, False])
+@pytest.mark.parametrize("target", TARGETS)
+def test_build_features_use_only_prior_seasons(seasons_df, target, include_target):
+    rows = build_features(seasons_df, target, include_target=include_target)
+    assert len(rows) > 0
+    assert (rows.max_source_season < rows.target_season).all()
+    assert_no_leakage(rows)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_build_features_poison_future_rows_do_not_change_output(seasons_df, target):
+    ids = seasons_df["player_id"].unique()[:20]
+    poison = pd.DataFrame(
+        {
+            "player_id": list(ids) + [10**6],
+            "season": [target + 1 + i % 3 for i in range(len(ids) + 1)],
+            "age": 30,
+            "pa": 10**6,
+            "woba": 9.99,
+            "k_pct": 9.99,
+            "bb_pct": 9.99,
+        }
+    )
+    poisoned = pd.concat([seasons_df, poison], ignore_index=True)
+    # Poison starts after the target season, so even the target columns must be unchanged.
+    for include_target in (True, False):
+        assert_frame_equal(
+            build_features(poisoned, target, include_target=include_target),
+            build_features(seasons_df, target, include_target=include_target),
+        )
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_build_features_target_season_rows_do_not_change_features(seasons_df, target):
+    ids = seasons_df["player_id"].unique()[:20]
+    poison = pd.DataFrame(
+        {
+            "player_id": ids,
+            "season": target,
+            "age": 30,
+            "pa": 10**6,
+            "woba": 9.99,
+            "k_pct": 9.99,
+            "bb_pct": 9.99,
+        }
+    )
+    poisoned = pd.concat([seasons_df, poison], ignore_index=True)
+    assert_frame_equal(
+        build_features(poisoned, target, include_target=False),
+        build_features(seasons_df, target, include_target=False),
+    )
 
 
 def test_make_seasons_is_deterministic():

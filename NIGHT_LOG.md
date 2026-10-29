@@ -44,3 +44,11 @@ Append one entry per phase (pass or fail): phase, start/end time, commands run, 
 - Fix attempts: 1 (ruff import sorting only).
 - Decisions: tests import the generator as `from synthetic import make_seasons` (tests/ has no `__init__`, pytest puts it on sys.path). Generator draws the career with `rng.integers(3, 10)` (3..9) and truncates at the last season. NaN masking uses one `rng.random` draw per row per column over the whole frame. `build_asof_rows` returns int64 columns sorted by `player_id`, with a fresh RangeIndex.
 - Blockers: none.
+
+## N2 Phase 2: lag features — PASS
+- Start: epoch 1793240593 (before cutoff 1793258100). End: epoch 1793240658.
+- Branch confirmed: night/2026-10-28-n2.
+- Commands: `VERIFY_SKIP_COMMIT=1 bash scripts/verify_n2.sh 2` (ruff clean; test_no_leakage.py 47 passed, 0 skipped; test_features_lags.py 10 passed; import OK; full pytest 97 passed).
+- Fix attempts: 0.
+- Decisions: `max_source_season` is the latest lag season with league data (always `target-1` for eligible rows). `age_target` is taken from the player's `target-1` row plus 1. Output sorted by `player_id`; duplicate player-season rows collapse to the first. Added a `feature_columns(lags)` helper for column order. Spec-compliant empty frames keep all columns.
+- Blockers: none.
