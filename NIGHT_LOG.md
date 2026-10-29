@@ -28,3 +28,9 @@ Append one entry per phase (pass or fail): phase, start/end time, commands run, 
 - Spec values re-derived by hand (0.363243, 0.371961, 0.358884, 0.346767, 0.32384): all correct as written.
 - Decisions: wrapper's league rate = weighted mean over lookback seasons T-1..T-3 that have a league rate (error if none); target age is taken from the player's last observed season before T (even if outside the 3-year lookback, in which case no PA is used); players with no rows before T are omitted from the output; missing lookback season counts as pa=0; `marcel_rate` ignores seasons beyond len(weights).
 - Blockers: none.
+
+## Phase 4: morning report — PASS
+- Start: 2026-10-28 22:13 (epoch 1793239994, before cutoff 1793258100). End: 22:14.
+- Commands: `VERIFY_SKIP_COMMIT=1 bash scripts/verify_phase.sh 1`, `... 2`, `... 3` (all exit 0; 40 passed, 1 skipped); `git log --stat`; `git status --short` (clean).
+- Wrote reports/2026-10-28-overnight.md. Stop reason: all build phases passed.
+- Fix attempts: 0. Decisions: none. Blockers: none.
