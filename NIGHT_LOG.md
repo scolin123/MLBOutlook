@@ -60,3 +60,11 @@ Append one entry per phase (pass or fail): phase, start/end time, commands run, 
 - Fix attempts: 0. Spec values (0.371613, 0.363243, 0.371961, 0.358884, 0.346767) re-derived by hand and correct as written.
 - Decisions: no usable league rate or no history gives NaN from `Weighted3`/`LastSeason`; `MarcelBaseline` with no PA regresses fully to the league rate (NaN only if all `lg_woba_lag` are NaN). A NaN lag wOBA is passed to `marcel_rate` as rate 0 (its PA is 0 for frames from `build_features`, so it has no effect). Two extra tests beyond the spec (no history 0.319040; renormalised league rate 0.362162, hand-derived).
 - Blockers: none.
+
+## N2 Phase 4: evaluation harness — PASS
+- Start: epoch 1793240772 (before cutoff 1793258100). End: epoch 1793240821.
+- Branch confirmed: night/2026-10-28-n2.
+- Commands: `VERIFY_SKIP_COMMIT=1 bash scripts/verify_n2.sh 4` (ruff clean; test_harness.py 17 passed; import OK; full pytest 123 passed).
+- Fix attempts: 1 (ruff E501 on the `fold_frames` signature; wrapped the line).
+- Decisions: `FoldNotFrozenError` subclasses `RuntimeError`. Only `frozen is False` triggers the guard (`None`/`True` run freely). `run_fold` returns one row per model in factory order; `run_all` uses a fresh index. Bootstrap resamples pair indices with `default_rng(seed)` and raises `ValueError` on misaligned or empty input. Hand-computed LastSeason mini case: errors +.02, -.04, +.03 give mae 0.03, bias 0.01/3; n_train 2, n_test 3. Extra tests: `run_all` calls each factory once per fold, and `run_all` blocks the unfrozen holdout by default.
+- Blockers: none.
