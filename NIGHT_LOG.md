@@ -76,3 +76,11 @@ Append one entry per phase (pass or fail): phase, start/end time, commands run, 
 - Fix attempts: 0 (one ruff import-order autofix in the new test).
 - Decisions: `fit` without `y` raises ValueError; unfitted `predict` raises RuntimeError ("not fitted"). Synthetic generator unchanged (marcel and ridge already beat last_season). Truncation leakage test compares ridge predictions on `include_target=False` test features from full vs truncated data (truncated data has no test-season targets).
 - Blockers: none.
+
+
+## N2 Phase 6: morning report - PASS
+- Start: epoch 1793241235 (before cutoff 1793258100). Build loop ended because all build phases passed.
+- Commands: VERIFY_SKIP_COMMIT=1 bash scripts/verify_n2.sh N for N=1..5 (all exit 0; ruff clean; full pytest 134 passed each time); git log --stat main..HEAD; git status --short (clean before report).
+- Wrote reports/2026-10-28-n2-overnight.md from that output.
+- Fix attempts: 0. Decisions: none. Blockers: none. Uncommitted leftovers: none.
+- Note: the Phase 5 heading above contains a mis-encoded dash byte (not valid UTF-8); left untouched, so this entry was appended in binary mode.
