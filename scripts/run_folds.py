@@ -1,6 +1,8 @@
 """Run the unfrozen-safe folds (fold1, fold2) on real data and print an MAE table.
 
-The final holdout (any fold with ``frozen: false``) is skipped, never run.
+Each fold runs twice: the ``base`` training window from ``folds.yaml`` and the ``extended``
+one that adds the pre-2023 target seasons. The final holdout (any fold with
+``frozen: false``) is skipped, never run.
 
 Usage:
     uv run python scripts/run_folds.py
@@ -39,20 +41,22 @@ def main() -> None:
         if fold.frozen is False:
             print(f"skipping {fold.name}: final holdout, not frozen")
             continue
-        results.append(run_fold(df, fold, cfg, FACTORIES))
+        for extended in (False, True):
+            label = "extended" if extended else "base"
+            results.append(run_fold(df, fold, cfg, FACTORIES, extended=extended))
 
-        # Each candidate vs the Marcel baseline, paired bootstrap on absolute errors
-        train, test = fold_frames(df, fold, cfg)
-        errs = {}
-        for name in (BASELINE, *CANDIDATES):
-            model = FACTORIES[name]().fit(train, train["y_woba"])
-            errs[name] = (model.predict(test) - test["y_woba"]).abs().to_numpy()
-        for name in CANDIDATES:
-            diff, lo, hi = paired_bootstrap_mae_diff(errs[name], errs[BASELINE])
-            print(
-                f"{fold.name}: {name} - {BASELINE} MAE = {diff:+.4f}  "
-                f"(95% CI {lo:+.4f} to {hi:+.4f})"
-            )
+            # Each candidate vs the Marcel baseline, paired bootstrap on absolute errors
+            train, test = fold_frames(df, fold, cfg, extended=extended)
+            errs = {}
+            for name in (BASELINE, *CANDIDATES):
+                model = FACTORIES[name]().fit(train, train["y_woba"])
+                errs[name] = (model.predict(test) - test["y_woba"]).abs().to_numpy()
+            for name in CANDIDATES:
+                diff, lo, hi = paired_bootstrap_mae_diff(errs[name], errs[BASELINE])
+                print(
+                    f"{fold.name} {label:8s} {name:10s} - {BASELINE} MAE = {diff:+.4f}  "
+                    f"(95% CI {lo:+.4f} to {hi:+.4f})"
+                )
 
     table = pd.concat(results, ignore_index=True)
     OUT.parent.mkdir(parents=True, exist_ok=True)

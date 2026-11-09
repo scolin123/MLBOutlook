@@ -12,6 +12,7 @@ Fixture (player, season: age, pa, woba, k_pct, bb_pct):
 import numpy as np
 import pandas as pd
 import pytest
+from pandas.testing import assert_frame_equal
 
 from mlb_outlook.features.asof import TARGET_COLUMNS, build_features, feature_columns
 
@@ -46,6 +47,7 @@ def test_column_names_and_order(tiny):
             f"bb_pct_lag{k}",
             f"lg_woba_lag{k}",
             f"miss_lag{k}",
+            f"short_lag{k}",
         ]
     assert list(out.columns) == expected + TARGET_COLUMNS
     assert feature_columns(3) == expected
@@ -171,3 +173,24 @@ def test_empty_when_target_before_data(tiny):
     out = build_features(tiny, 2019, include_target=False)
     assert len(out) == 0
     assert list(out.columns) == feature_columns(3)
+
+
+def test_short_season_flag_marks_the_lag_it_lands_on(tiny):
+    plain = build_features(tiny, 2024)
+    for k in (1, 2, 3):
+        assert (plain[f"short_lag{k}"] == 0).all()  # no flagged seasons by default
+    flagged = build_features(tiny, 2024, flag_seasons=(2022,))
+    assert (flagged["short_lag1"] == 0).all()  # 2023
+    assert (flagged["short_lag2"] == 1).all()  # 2022
+    assert (flagged["short_lag3"] == 0).all()  # 2021
+    # The flag is about the season, not the player: it is set even where the lag is missing.
+    p2 = build_features(tiny, 2024, include_target=False, flag_seasons=(2021,))
+    p2 = p2.loc[p2["player_id"] == 2].iloc[0]
+    assert p2["miss_lag3"] == 1 and p2["short_lag3"] == 1
+
+
+def test_short_season_flag_does_not_touch_other_columns(tiny):
+    plain = build_features(tiny, 2024)
+    flagged = build_features(tiny, 2024, flag_seasons=(2021, 2022))
+    shared = [c for c in plain.columns if not c.startswith("short_lag")]
+    assert_frame_equal(plain[shared], flagged[shared])

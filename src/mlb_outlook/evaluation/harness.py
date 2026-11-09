@@ -17,19 +17,26 @@ class FoldNotFrozenError(RuntimeError):
 
 
 def fold_frames(
-    df: pd.DataFrame, fold: Fold, cfg: FoldsConfig
+    df: pd.DataFrame, fold: Fold, cfg: FoldsConfig, *, extended: bool = False
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (train, test) feature frames for one fold."""
+    """Return (train, test) feature frames for one fold.
+
+    With ``extended=True`` the train frame also covers ``cfg.extended.extra_train_targets``
+    (the pre-2023 seasons); the test frame is identical either way.
+    """
     kwargs = {
         "include_target": True,
         "min_pa_feature": cfg.min_pa.feature_season,
         "min_pa_target": cfg.min_pa.target_season,
+        "flag_seasons": tuple(cfg.extended.flag_seasons),
     }
-    train = pd.concat(
-        [build_features(df, t, **kwargs) for t in fold.train_targets], ignore_index=True
-    )
+    targets = cfg.extended_train_targets(fold) if extended else fold.train_targets
+    train = pd.concat([build_features(df, t, **kwargs) for t in targets], ignore_index=True)
     test = build_features(df, fold.test_target, **kwargs)
     return train, test
+
+
+RESULT_COLUMNS = ["model", "config", "fold", "n_train", "n_test", "mae", "bias"]
 
 
 def run_fold(
@@ -39,13 +46,14 @@ def run_fold(
     factories: dict[str, Callable[[], Forecaster]],
     *,
     allow_unfrozen: bool = False,
+    extended: bool = False,
 ) -> pd.DataFrame:
     """Fit a fresh model per factory on the fold's train frame and score the test frame."""
     if fold.frozen is False and not allow_unfrozen:
         raise FoldNotFrozenError(
             f"fold {fold.name!r} is not frozen; pass allow_unfrozen=True after design freeze"
         )
-    train, test = fold_frames(df, fold, cfg)
+    train, test = fold_frames(df, fold, cfg, extended=extended)
     rows = []
     for name, factory in factories.items():
         model = factory()
@@ -55,6 +63,7 @@ def run_fold(
         rows.append(
             {
                 "model": name,
+                "config": "extended" if extended else "base",
                 "fold": fold.name,
                 "n_train": len(train),
                 "n_test": len(test),
@@ -62,7 +71,7 @@ def run_fold(
                 "bias": float(np.mean(err)),
             }
         )
-    return pd.DataFrame(rows, columns=["model", "fold", "n_train", "n_test", "mae", "bias"])
+    return pd.DataFrame(rows, columns=RESULT_COLUMNS)
 
 
 def run_all(
@@ -71,10 +80,12 @@ def run_all(
     factories: dict[str, Callable[[], Forecaster]],
     *,
     allow_unfrozen: bool = False,
+    extended: bool = False,
 ) -> pd.DataFrame:
     """Run every fold in ``cfg.folds`` (not production) and concatenate the results."""
     parts = [
-        run_fold(df, fold, cfg, factories, allow_unfrozen=allow_unfrozen) for fold in cfg.folds
+        run_fold(df, fold, cfg, factories, allow_unfrozen=allow_unfrozen, extended=extended)
+        for fold in cfg.folds
     ]
     return pd.concat(parts, ignore_index=True)
 

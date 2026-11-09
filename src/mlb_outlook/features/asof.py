@@ -6,6 +6,8 @@ are absent when ``include_target=False`` (production), so no model may read them
 put a relative forecast back on the wOBA scale.
 """
 
+from collections.abc import Collection
+
 import numpy as np
 import pandas as pd
 
@@ -53,6 +55,7 @@ def feature_columns(lags: int = 3) -> list[str]:
             f"bb_pct_lag{k}",
             f"lg_woba_lag{k}",
             f"miss_lag{k}",
+            f"short_lag{k}",
         ]
     return cols
 
@@ -65,8 +68,13 @@ def build_features(
     min_pa_feature: int = 100,
     min_pa_target: int = 100,
     include_target: bool = True,
+    flag_seasons: Collection[int] = (),
 ) -> pd.DataFrame:
-    """Lag features for `target_season`, built only from seasons < target_season."""
+    """Lag features for `target_season`, built only from seasons < target_season.
+
+    `flag_seasons` are seasons whose rates come from an abnormal schedule (2020). They are
+    not dropped: each lag gets a `short_lag{k}` indicator so a model can fit them apart.
+    """
     prior = df.loc[df["season"] < target_season]
     last = prior.loc[(prior["season"] == target_season - 1) & (prior["pa"] >= min_pa_feature)]
     base = last[["player_id", "age"]].drop_duplicates("player_id").sort_values("player_id")
@@ -95,6 +103,7 @@ def build_features(
         out[f"bb_pct_lag{k}"] = ids.map(rows["bb_pct"]).astype("float64")
         out[f"lg_woba_lag{k}"] = league[season]
         out[f"miss_lag{k}"] = (~have).astype("int64")
+        out[f"short_lag{k}"] = np.int64(season in flag_seasons)
         if not np.isnan(league[season]):
             used = np.maximum(used, season)
     out["max_source_season"] = used

@@ -6,6 +6,7 @@ import pytest
 
 from mlb_outlook.config import Fold, load_folds_config
 from mlb_outlook.evaluation.harness import (
+    RESULT_COLUMNS,
     FoldNotFrozenError,
     fold_frames,
     paired_bootstrap_mae_diff,
@@ -135,3 +136,57 @@ def test_bootstrap_seed_reproducible_and_validates():
     assert paired_bootstrap_mae_diff(a, b, seed=5) == paired_bootstrap_mae_diff(a, b, seed=5)
     with pytest.raises(ValueError):
         paired_bootstrap_mae_diff(a, b[:10])
+
+
+# ---- extended training window (configs/folds.yaml: extended.extra_train_targets) ----
+
+# The synthetic fixture starts in 2018, so extended targets before 2019 have no prior
+# season to build features from and contribute no rows.
+FIRST_USABLE_TARGET = 2019
+
+
+@pytest.mark.parametrize("fold", CFG.folds, ids=lambda f: f.name)
+def test_extended_train_frame_adds_the_extra_targets(seasons_df, fold):
+    base, _ = fold_frames(seasons_df, fold, CFG)
+    ext, _ = fold_frames(seasons_df, fold, CFG, extended=True)
+    expected = {t for t in CFG.extended_train_targets(fold) if t >= FIRST_USABLE_TARGET}
+    assert set(ext["target_season"]) == expected
+    assert set(base["target_season"]) < set(ext["target_season"])
+    assert len(ext) > len(base)
+    assert 2020 not in set(ext["target_season"])  # short season is flagged, never a target
+
+
+@pytest.mark.parametrize("fold", CFG.folds, ids=lambda f: f.name)
+def test_extended_leaves_the_test_frame_alone(seasons_df, fold):
+    _, base_test = fold_frames(seasons_df, fold, CFG)
+    _, ext_test = fold_frames(seasons_df, fold, CFG, extended=True)
+    pd.testing.assert_frame_equal(base_test, ext_test)
+
+
+@pytest.mark.parametrize("fold", CFG.folds, ids=lambda f: f.name)
+def test_extended_training_stays_before_the_test_target(seasons_df, fold):
+    ext, _ = fold_frames(seasons_df, fold, CFG, extended=True)
+    assert (ext["target_season"] < fold.test_target).all()
+    assert (ext["max_source_season"] < ext["target_season"]).all()
+    truncated = seasons_df[seasons_df["season"] < fold.test_target]
+    trunc_ext, _ = fold_frames(truncated, fold, CFG, extended=True)
+    pd.testing.assert_frame_equal(ext, trunc_ext)
+
+
+@pytest.mark.parametrize("fold", CFG.folds, ids=lambda f: f.name)
+def test_extended_scores_only_differ_for_models_that_train(seasons_df, fold):
+    kwargs = {"allow_unfrozen": True}
+    base = run_fold(seasons_df, fold, CFG, {"last": LastSeason}, **kwargs).iloc[0]
+    ext = run_fold(seasons_df, fold, CFG, {"last": LastSeason}, extended=True, **kwargs).iloc[0]
+    assert base["config"] == "base" and ext["config"] == "extended"
+    assert ext["n_train"] > base["n_train"]
+    assert ext["n_test"] == base["n_test"]
+    # LastSeason ignores the training frame, so a wider window cannot move its score.
+    assert ext["mae"] == base["mae"] and ext["bias"] == base["bias"]
+
+
+def test_result_columns(seasons_df):
+    out = run_all(seasons_df, CFG, {"last": LastSeason}, allow_unfrozen=True, extended=True)
+    assert list(out.columns) == RESULT_COLUMNS
+    assert (out["config"] == "extended").all()
+

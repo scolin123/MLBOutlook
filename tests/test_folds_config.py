@@ -181,3 +181,42 @@ def test_missing_success_criteria_fails():
     del cfg["success_criteria"]
     with pytest.raises(ValidationError, match="success_criteria"):
         FoldsConfig.model_validate(cfg)
+
+
+def test_extended_train_targets_unions_and_sorts():
+    cfg = FoldsConfig.model_validate(make())
+    assert cfg.extended_train_targets(cfg.folds[0]) == [2019, 2023]
+    assert cfg.extended_train_targets(cfg.folds[1]) == [2019, 2023, 2024]
+
+
+def test_extended_train_targets_drops_extras_at_or_after_the_test_target():
+    data = make()
+    data["extended"]["extra_train_targets"] = [2019, 2024, 2025]
+    cfg = FoldsConfig.model_validate(data)
+    # fold f1 tests 2024, so 2024 and 2025 are not available as training targets.
+    assert cfg.extended_train_targets(cfg.folds[0]) == [2019, 2023]
+    assert cfg.extended_train_targets(cfg.folds[1]) == [2019, 2023, 2024]
+    assert cfg.extended_train_targets(cfg.folds[2]) == [2019, 2023, 2024, 2025]
+
+
+def test_real_config_extended_targets():
+    cfg = load_folds_config("configs/folds.yaml")
+    fold2 = next(f for f in cfg.folds if f.name == "fold2")
+    assert cfg.extended_train_targets(fold2) == [2016, 2017, 2018, 2019, 2021, 2022, 2023, 2024]
+    assert 2020 not in cfg.extended_train_targets(fold2)
+    assert cfg.extended.flag_seasons == [2020]
+
+
+def test_extended_extra_train_targets_must_increase():
+    data = make()
+    data["extended"]["extra_train_targets"] = [2019, 2017]
+    with pytest.raises(ValidationError):
+        FoldsConfig.model_validate(data)
+
+
+def test_extended_flag_season_cannot_also_be_a_train_target():
+    data = make()
+    data["extended"]["extra_train_targets"] = [2019, 2020]
+    with pytest.raises(ValidationError, match="flag_seasons"):
+        FoldsConfig.model_validate(data)
+

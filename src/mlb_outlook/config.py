@@ -63,6 +63,14 @@ class Extended(_Strict):
     extra_train_targets: list[int]
     flag_seasons: list[int]
 
+    @model_validator(mode="after")
+    def _check(self) -> Extended:
+        _check_increasing(self.extra_train_targets, "extended extra_train_targets")
+        overlap = set(self.extra_train_targets) & set(self.flag_seasons)
+        if overlap:
+            raise ValueError(f"extended flag_seasons are also train targets: {sorted(overlap)}")
+        return self
+
 
 class MinPA(_Strict):
     feature_season: int
@@ -106,6 +114,15 @@ class FoldsConfig(_Strict):
         if unknown:
             raise ValueError(f"success_criteria.beats_marcel_mae_on has unknown folds: {unknown}")
         return self
+
+    def extended_train_targets(self, fold: Fold) -> list[int]:
+        """The fold's train targets plus `extended.extra_train_targets`.
+
+        Extras at or after the fold's test target are dropped: training on them would use
+        outcomes from the test season or later.
+        """
+        extras = {s for s in self.extended.extra_train_targets if s < fold.test_target}
+        return sorted(set(fold.train_targets) | extras)
 
 
 def load_folds_config(path: str | Path) -> FoldsConfig:
