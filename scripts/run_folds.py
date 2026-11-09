@@ -15,6 +15,7 @@ import pandas as pd
 from mlb_outlook.config import load_folds_config
 from mlb_outlook.evaluation.harness import fold_frames, paired_bootstrap_mae_diff, run_fold
 from mlb_outlook.models.baselines import LastSeason, MarcelBaseline, Weighted3
+from mlb_outlook.models.relative import relative_ridge
 from mlb_outlook.models.ridge import RidgeForecaster
 
 DATA = Path("data/processed/hitter_seasons.parquet")
@@ -24,7 +25,10 @@ FACTORIES = {
     "weighted3": Weighted3,
     "marcel": MarcelBaseline,
     "ridge": RidgeForecaster,
+    "ridge_rel": relative_ridge,
 }
+BASELINE = "marcel"
+CANDIDATES = ("ridge", "ridge_rel")
 
 
 def main() -> None:
@@ -37,14 +41,18 @@ def main() -> None:
             continue
         results.append(run_fold(df, fold, cfg, FACTORIES))
 
-        # Ridge vs Marcel, paired bootstrap on absolute errors
+        # Each candidate vs the Marcel baseline, paired bootstrap on absolute errors
         train, test = fold_frames(df, fold, cfg)
         errs = {}
-        for name in ("ridge", "marcel"):
+        for name in (BASELINE, *CANDIDATES):
             model = FACTORIES[name]().fit(train, train["y_woba"])
             errs[name] = (model.predict(test) - test["y_woba"]).abs().to_numpy()
-        diff, lo, hi = paired_bootstrap_mae_diff(errs["ridge"], errs["marcel"])
-        print(f"{fold.name}: ridge - marcel MAE = {diff:+.4f}  (95% CI {lo:+.4f} to {hi:+.4f})")
+        for name in CANDIDATES:
+            diff, lo, hi = paired_bootstrap_mae_diff(errs[name], errs[BASELINE])
+            print(
+                f"{fold.name}: {name} - {BASELINE} MAE = {diff:+.4f}  "
+                f"(95% CI {lo:+.4f} to {hi:+.4f})"
+            )
 
     table = pd.concat(results, ignore_index=True)
     OUT.parent.mkdir(parents=True, exist_ok=True)

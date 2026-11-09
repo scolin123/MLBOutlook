@@ -1,9 +1,16 @@
-"""As-of feature builder: only seasons strictly before the target season are used."""
+"""As-of feature builder: only seasons strictly before the target season are used.
+
+Columns prefixed ``y_`` are target-season outcomes used for fitting and scoring only; they
+are absent when ``include_target=False`` (production), so no model may read them in
+``predict``. League-relative work therefore uses ``lg_woba_hat`` (prior seasons only) to
+put a relative forecast back on the wOBA scale.
+"""
 
 import numpy as np
 import pandas as pd
 
 ASOF_COLUMNS = ["player_id", "target_season", "max_source_season", "n_source_seasons"]
+TARGET_COLUMNS = ["y_woba", "y_pa", "y_lg_woba"]
 
 
 def build_asof_rows(df: pd.DataFrame, target_season: int) -> pd.DataFrame:
@@ -36,10 +43,11 @@ def _league_woba(df: pd.DataFrame, seasons: list[int]) -> dict[int, float]:
 
 def feature_columns(lags: int = 3) -> list[str]:
     """Output column order of `build_features` (without target columns)."""
-    cols = ["player_id", "target_season", "max_source_season", "age_target"]
+    cols = ["player_id", "target_season", "max_source_season", "age_target", "lg_woba_hat"]
     for k in range(1, lags + 1):
         cols += [
             f"woba_lag{k}",
+            f"woba_rel_lag{k}",
             f"pa_lag{k}",
             f"k_pct_lag{k}",
             f"bb_pct_lag{k}",
@@ -71,6 +79,9 @@ def build_features(
     )
     lag_seasons = [target_season - k for k in range(1, lags + 1)]
     league = _league_woba(prior, lag_seasons)
+    # Forecast-date estimate of the target season's league level: last season's, a random walk.
+    # The target season's own league wOBA is unknowable here, so it is a `y_` column instead.
+    out["lg_woba_hat"] = league[target_season - 1]
     used = np.full(len(out), -1, dtype="int64")
     for k, season in enumerate(lag_seasons, start=1):
         rows = prior.loc[prior["season"] == season].drop_duplicates("player_id")
@@ -78,6 +89,7 @@ def build_features(
         ids = out["player_id"]
         have = ids.isin(rows.index)
         out[f"woba_lag{k}"] = ids.map(rows["woba"]).astype("float64")
+        out[f"woba_rel_lag{k}"] = out[f"woba_lag{k}"] - league[season]
         out[f"pa_lag{k}"] = ids.map(rows["pa"]).fillna(0).astype("int64")
         out[f"k_pct_lag{k}"] = ids.map(rows["k_pct"]).astype("float64")
         out[f"bb_pct_lag{k}"] = ids.map(rows["bb_pct"]).astype("float64")
@@ -94,4 +106,5 @@ def build_features(
         out["y_pa"] = out["player_id"].map(tgt["pa"])
         out = out.loc[out["y_pa"].notna()].copy()
         out["y_pa"] = out["y_pa"].astype("int64")
+        out["y_lg_woba"] = _league_woba(df, [target_season])[target_season]
     return out.reset_index(drop=True)

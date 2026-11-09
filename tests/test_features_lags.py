@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlb_outlook.features.asof import build_features, feature_columns
+from mlb_outlook.features.asof import TARGET_COLUMNS, build_features, feature_columns
 
 COLS = ["player_id", "season", "age", "pa", "woba", "k_pct", "bb_pct"]
 ROWS = [
@@ -36,19 +36,48 @@ def tiny():
 
 def test_column_names_and_order(tiny):
     out = build_features(tiny, 2024)
-    expected = ["player_id", "target_season", "max_source_season", "age_target"]
+    expected = ["player_id", "target_season", "max_source_season", "age_target", "lg_woba_hat"]
     for k in (1, 2, 3):
         expected += [
             f"woba_lag{k}",
+            f"woba_rel_lag{k}",
             f"pa_lag{k}",
             f"k_pct_lag{k}",
             f"bb_pct_lag{k}",
             f"lg_woba_lag{k}",
             f"miss_lag{k}",
         ]
-    assert list(out.columns) == expected + ["y_woba", "y_pa"]
+    assert list(out.columns) == expected + TARGET_COLUMNS
     assert feature_columns(3) == expected
     assert list(build_features(tiny, 2024, include_target=False).columns) == expected
+
+
+def test_league_relative_columns_by_hand(tiny):
+    out = build_features(tiny, 2024)
+    row = out.iloc[0]
+    # lg_woba_hat is the 2023 league rate: the forecast-date estimate for 2024.
+    assert row["lg_woba_hat"] == pytest.approx(320 / 980)
+    assert row["woba_rel_lag1"] == pytest.approx(0.340 - 320 / 980)
+    assert row["woba_rel_lag2"] == pytest.approx(0.320 - 188 / 600)
+    assert row["woba_rel_lag3"] == pytest.approx(0.300 - 0.300)
+    # y_lg_woba is the target season's own league rate: (550*.350 + 50*.250 + 400*.310) / 1000
+    assert row["y_lg_woba"] == pytest.approx((550 * 0.350 + 50 * 0.250 + 400 * 0.310) / 1000)
+
+
+def test_relative_lag_is_nan_when_lag_or_league_missing(tiny):
+    out = build_features(tiny, 2024, include_target=False)
+    p2 = out.loc[out["player_id"] == 2].iloc[0]
+    assert np.isnan(p2["woba_rel_lag3"])  # P2 has no 2021 season
+    no_2021 = build_features(tiny[tiny["season"] >= 2022], 2024, include_target=False)
+    assert no_2021["woba_rel_lag3"].isna().all()  # no 2021 league rate at all
+
+
+def test_lg_woba_hat_ignores_target_season_rows(tiny):
+    poison = pd.DataFrame([(9, 2024, 30, 10**6, 1.5, 0.2, 0.08)], columns=COLS)
+    poisoned = pd.concat([tiny, poison], ignore_index=True)
+    assert build_features(poisoned, 2024, include_target=False)["lg_woba_hat"].iloc[0] == (
+        pytest.approx(320 / 980)
+    )
 
 
 def test_lag_alignment_and_filters(tiny):
