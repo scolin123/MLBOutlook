@@ -36,7 +36,30 @@ def fold_frames(
     return train, test
 
 
-RESULT_COLUMNS = ["model", "config", "fold", "n_train", "n_test", "mae", "bias"]
+RESULT_COLUMNS = [
+    "model",
+    "config",
+    "fold",
+    "n_train",
+    "n_test",
+    "mae",
+    "bias",
+    "coverage",
+    "width",
+]
+
+
+def interval_metrics(lo, hi, y) -> tuple[float, float]:
+    """Share of `y` inside [lo, hi] and the mean interval width."""
+    lo = np.asarray(lo, dtype=float)
+    hi = np.asarray(hi, dtype=float)
+    y = np.asarray(y, dtype=float)
+    if not lo.shape == hi.shape == y.shape or lo.ndim != 1 or lo.size == 0:
+        raise ValueError("lo, hi and y must be aligned non-empty 1-D arrays")
+    if (hi < lo).any():
+        raise ValueError("every upper bound must be at least its lower bound")
+    inside = (y >= lo) & (y <= hi)
+    return float(inside.mean()), float(np.mean(hi - lo))
 
 
 def run_fold(
@@ -48,7 +71,11 @@ def run_fold(
     allow_unfrozen: bool = False,
     extended: bool = False,
 ) -> pd.DataFrame:
-    """Fit a fresh model per factory on the fold's train frame and score the test frame."""
+    """Fit a fresh model per factory on the fold's train frame and score the test frame.
+
+    A model that also exposes ``predict_interval`` gets its interval coverage and mean
+    width scored on the same test rows; the other models leave those columns NaN.
+    """
     if fold.frozen is False and not allow_unfrozen:
         raise FoldNotFrozenError(
             f"fold {fold.name!r} is not frozen; pass allow_unfrozen=True after design freeze"
@@ -60,6 +87,10 @@ def run_fold(
         model.fit(train, train["y_woba"])
         pred = model.predict(test)
         err = pred.to_numpy(dtype=float) - test["y_woba"].to_numpy(dtype=float)
+        coverage, width = np.nan, np.nan
+        if hasattr(model, "predict_interval"):
+            bounds = model.predict_interval(test)
+            coverage, width = interval_metrics(bounds["lo"], bounds["hi"], test["y_woba"])
         rows.append(
             {
                 "model": name,
@@ -69,6 +100,8 @@ def run_fold(
                 "n_test": len(test),
                 "mae": float(np.mean(np.abs(err))),
                 "bias": float(np.mean(err)),
+                "coverage": coverage,
+                "width": width,
             }
         )
     return pd.DataFrame(rows, columns=RESULT_COLUMNS)

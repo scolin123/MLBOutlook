@@ -1,8 +1,11 @@
-"""Run the unfrozen-safe folds (fold1, fold2) on real data and print an MAE table.
+"""Run the unfrozen-safe folds (fold1, fold2) on real data and print the results table.
 
 Each fold runs twice: the ``base`` training window from ``folds.yaml`` and the ``extended``
 one that adds the pre-2023 target seasons. The final holdout (any fold with
 ``frozen: false``) is skipped, never run.
+
+Point models report MAE and bias. Interval models report those plus the coverage and mean
+width of their 80% intervals, checked against ``success_criteria`` in ``folds.yaml``.
 
 Usage:
     uv run python scripts/run_folds.py
@@ -10,24 +13,38 @@ Usage:
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import pandas as pd
 
-from mlb_outlook.config import load_folds_config
+from mlb_outlook.config import FoldsConfig, load_folds_config
 from mlb_outlook.evaluation.harness import fold_frames, paired_bootstrap_mae_diff, run_fold
 from mlb_outlook.models.baselines import LastSeason, MarcelBaseline, Weighted3
+from mlb_outlook.models.intervals import (
+    DEFAULT_LEVEL,
+    DEFAULT_PA_EDGES,
+    QuantileRegressionIntervals,
+    ResidualQuantileIntervals,
+    SplitConformalIntervals,
+)
 from mlb_outlook.models.relative import relative_ridge
 from mlb_outlook.models.ridge import RidgeForecaster
 
 DATA = Path("data/processed/hitter_seasons.parquet")
 OUT = Path("artifacts/fold_results.csv")
+# The interval models all carry the same point forecaster, ridge_rel, so their MAE stays
+# comparable; the conformal pair refits it on a subset, which costs them a little.
 FACTORIES = {
     "last_season": LastSeason,
     "weighted3": Weighted3,
     "marcel": MarcelBaseline,
     "ridge": RidgeForecaster,
     "ridge_rel": relative_ridge,
+    "resid_q_pa": ResidualQuantileIntervals,
+    "conformal": SplitConformalIntervals,
+    "conformal_pa": partial(SplitConformalIntervals, pa_edges=DEFAULT_PA_EDGES),
+    "quantile_reg": QuantileRegressionIntervals,
 }
 BASELINE = "marcel"
 CANDIDATES = ("ridge", "ridge_rel")
@@ -63,7 +80,24 @@ def main() -> None:
     table.to_csv(OUT, index=False)
     print()
     print(table.round(4).to_string(index=False))
+    print_interval_coverage(table, cfg)
     print(f"\nwrote {OUT}")
+
+
+def print_interval_coverage(table: pd.DataFrame, cfg: FoldsConfig) -> None:
+    """Coverage and width of every interval model, against the pre-registered range."""
+    intervals = table.loc[table["coverage"].notna()]
+    if intervals.empty:
+        return
+    lo, hi = cfg.success_criteria.interval_80_coverage_range
+    print()
+    print(f"{DEFAULT_LEVEL:.0%} intervals, target coverage {lo:.0%}-{hi:.0%}:")
+    for row in intervals.itertuples():
+        verdict = "ok " if lo <= row.coverage <= hi else "OUT"
+        print(
+            f"  {verdict} {row.fold} {row.config:8s} {row.model:12s} "
+            f"coverage {row.coverage:.3f}  mean width {row.width:.4f}"
+        )
 
 
 if __name__ == "__main__":
