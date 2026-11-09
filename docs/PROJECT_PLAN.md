@@ -64,6 +64,8 @@ Notes:
 - Metrics: MAE/RMSE vs baselines, calibration of intervals/probabilities, Brier/log loss for breakout probabilities, precision at top 10/25 with bootstrap CIs.
 - Pre-registered "success": beats Marcel MAE on folds 2 and 3 with bootstrap CI not crossing zero, and 80% intervals cover 75-85% of outcomes. If not met, report honestly.
 - Ablations: remove park, Statcast contact quality, age, shrinkage prior one at a time.
+  Run on fold 2 only (`scripts/run_ablations.py`); results below. Park features do not exist
+  yet, so that one is still outstanding.
 - Historical decision simulation: top-25 buy-low lists each fold, realized outcome vs baseline.
 
 ### Results to date (2026-11-09, folds 1-2 only)
@@ -117,10 +119,58 @@ Open points from these runs:
 - The absolute-feature ridge degrades on the wider window (fold 2 bias -0.0141) and on synthetic
   two-season windows it blows up (MAE 0.068): near-constant `lg_woba_lag` columns get a large
   standardised coefficient and extrapolate. Decide before the freeze whether it stays as the
-  absolute-parameterisation reference or is dropped.
+  absolute-parameterisation reference or is dropped. The `league_rel` ablation below narrows
+  the cause but does not settle it.
 - The league level for the target season is a random walk (prior season's league wOBA). A better
   estimator is the obvious next lever on fold-1-style environment shifts, but fitting one on the
   full 2015-2026 series would peek at fold 3's test season.
+
+### Feature-group ablations (`evaluation/ablation.py`), fold 2, extended window
+
+One group dropped at a time from the selected `ridge_rel` configuration, re-fitted from
+scratch (`scripts/run_ablations.py`, writes `artifacts/ablation_results.csv`). The CI is a
+paired bootstrap of the ablated model's MAE minus the full model's on the same 362 test
+rows, so positive means dropping the group costs accuracy. Coverage is `resid_q_pa`, the
+selected interval approach, wrapped around the ablated forecaster.
+
+| Group dropped | Cols | MAE | vs full (95% CI) | 80% coverage | Mean width |
+|---|---|---|---|---|---|
+| none (selected) | 31 | 0.0263 | - | 0.815 | 0.0874 |
+| contact quality | -12 | 0.0271 | +0.0008 (-0.0001 to +0.0017) | 0.831 | 0.0899 |
+| K% / BB% | -6 | 0.0268 | +0.0006 (**+0.0002 to +0.0009**) | 0.815 | 0.0883 |
+| age | -1 | 0.0266 | +0.0003 (-0.0003 to +0.0009) | 0.807 | 0.0876 |
+| PA / missing-season flags | -9 | 0.0263 | +0.0000 (-0.0005 to +0.0005) | 0.809 | 0.0865 |
+| league-relative rates | swap 15 | 0.0262 | -0.0000 (-0.0002 to +0.0002) | 0.818 | 0.0875 |
+
+No group clearly hurts -- no CI sits entirely below zero -- so the selected configuration is
+unchanged. Fold 3 was not run. All six models keep 80% coverage inside the pre-registered
+75-85% range, so none of these choices is load-bearing for the interval criterion.
+
+- Only **K% / BB%** has a CI clear of zero. Its MAE gain is not the largest, but it is the
+  most consistent across players, which is what a paired bootstrap rewards.
+- **Contact quality** costs the most MAE (+0.0008) and yet its CI touches zero
+  (-0.0001). This is the same comparison as decision 3 above, and it reproduces it exactly
+  (0.0271 without, 0.0263 with). Flagged rather than acted on: the Statcast features were
+  adopted on a difference that a bootstrap cannot separate from zero on 362 rows. Dropping
+  them also widens the intervals (0.0899) and pushes coverage to 0.831, near the top of the
+  range -- the forecast gets noisier without them even where the MAE is ambiguous.
+- **PA and the missing-season / 2020 flags** are free to drop: +0.000009 MAE, the tightest
+  CI of any group, and slightly *narrower* intervals (0.0865). The flags were added so the
+  wide window could carry 2020 lags without being trained on them, and they do that without
+  earning anything at the margin. The interval's PA buckets read `pa_lag1` off the feature
+  frame, not the model's feature list, so they survive this ablation.
+- **Age** alone is worth +0.0003 with a CI spanning zero, and dropping it moves the bias
+  most of any group (-0.0013 to -0.0027): the age term is doing level work the aging-curve
+  part of Marcel does explicitly.
+- **League-relative rates** swapped for absolute ones changes nothing (0.0262 vs 0.0263,
+  CI +/-0.0002). `RELATIVE_FEATURES` has no `lg_woba_lag{k}` column to delete -- the rate
+  lags carry their season's league level already -- so a literal "drop the league columns"
+  is a no-op by construction, and the ablation that means something is this swap. It keeps
+  the league-centred target and `lg_woba_hat` re-levelling, so it does not isolate the
+  `lg_woba_lag` columns on its own. What it does show: once the target is league-centred,
+  absolute rate lags carry the same information as relative ones, which points at the
+  league-level columns or the uncentred target -- not the absolute rates -- as what breaks
+  the absolute ridge on the wide window. Worth resolving before the freeze.
 
 ## 7. Production forecast (2027)
 After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the repo and publish before the 2027 season. Score them after 2027 as a prospective test.

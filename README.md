@@ -85,6 +85,29 @@ are the current pick: they keep the full-data point fit, and per-bucket coverage
 (0.800 / 0.845 / 0.867). Both in-sample approaches need the wide training window -- on fold 1's
 one-season base window, residual quantiles cover 0.628 and quantile regression 0.480.
 
+Feature-group ablations on the selected configuration (`scripts/run_ablations.py`, writes
+`artifacts/ablation_results.csv`), fold 2 only, one group dropped at a time and the model
+re-fitted from scratch. The CI is a paired bootstrap of ablated minus full MAE on the same
+362 test rows, so positive means the group was worth keeping.
+
+| Group dropped | Cols | MAE | vs full (95% CI) | 80% coverage |
+|---|---|---|---|---|
+| none (selected) | 31 | 0.0263 | - | 0.815 |
+| contact quality | -12 | 0.0271 | +0.0008 (-0.0001 to +0.0017) | 0.831 |
+| K% / BB% | -6 | 0.0268 | +0.0006 (**+0.0002 to +0.0009**) | 0.815 |
+| age | -1 | 0.0266 | +0.0003 (-0.0003 to +0.0009) | 0.807 |
+| PA / missing-season flags | -9 | 0.0263 | +0.0000 (-0.0005 to +0.0005) | 0.809 |
+| league-relative rates | swap 15 | 0.0262 | -0.0000 (-0.0002 to +0.0002) | 0.818 |
+
+No group clearly hurts, so the selected configuration stands. K%/BB% is the only group whose
+CI clears zero. Contact quality costs the most MAE but its CI touches zero, which is the
+same comparison that got it adopted; it is flagged, not acted on. PA and the missing-season
+flags are free to drop. Swapping the league-relative rate lags for absolute ones changes
+nothing -- `RELATIVE_FEATURES` carries no `lg_woba_lag` column to drop in the first place.
+Every ablation stays inside the 75-85% coverage range. Park features do not exist yet, so
+that ablation is still outstanding. See
+[PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the per-group reading.
+
 ## Data
 - Statcast via `pybaseball`, MLB Stats API and the Chadwick register for player IDs. Seasons 2015-2026 are pulled for features and lag history.
 - FanGraphs-style figures are reference only; licensing is checked before any scraping, and metrics are self-computed where possible.
