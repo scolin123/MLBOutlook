@@ -88,9 +88,30 @@ Decisions taken on fold 2, in order, one change at a time:
    league-relative lags. Fold 2 0.0271 -> 0.0263, fold 1 0.0303 -> 0.0282.
 
 Selected configuration: `ridge_rel` on the extended window. Against Marcel on fold 2, paired
-bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. The MAE half of the
-pre-registered criterion is met on fold 2; the interval-coverage half is untested until intervals
-exist. Fold 3 has not been run and the design is not frozen.
+bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. Fold 3 has not been run
+and the design is not frozen.
+
+### 80% intervals (`models/intervals.py`), fold 2, extended window
+
+| Approach | Coverage | Mean width | Point MAE |
+|---|---|---|---|
+| **residual quantiles by PA bucket** | **0.815** | **0.0874** | 0.0263 |
+| split conformal (30% held out) | 0.840 | 0.0917 | 0.0264 |
+| split conformal, PA buckets | 0.837 | 0.0916 | 0.0264 |
+| quantile regression on residuals | 0.801 | 0.0857 | 0.0263 |
+
+Both halves of the pre-registered criterion are now met on fold 2: Marcel beaten with a bootstrap
+CI clear of zero, and 80% coverage inside 75-85% for every approach tried.
+
+- Current pick: residual quantiles by lag-1 PA bucket. It keeps the full-data point fit, and its
+  per-bucket coverage is flatter (0.800 / 0.798 / 0.844) than the constant conformal width manages
+  (0.800 / 0.845 / 0.867), which matters most for part-time hitters.
+- Split conformal is the fallback with a finite-sample guarantee. It costs a little point accuracy
+  (the forecaster is refitted on 70% of rows) and over-covers regulars.
+- Quantile regression is the narrowest at near-nominal coverage but the least stable: on the
+  one-season base window of fold 1 it covers 0.480, since 31 features fitted on a few hundred rows
+  make its in-sample residual quantiles far too optimistic. Residual quantiles have the same
+  weakness in milder form (0.628 on that window). Both need the wide window.
 
 Open points from these runs:
 - The absolute-feature ridge degrades on the wider window (fold 2 bias -0.0141) and on synthetic

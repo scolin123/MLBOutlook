@@ -66,8 +66,24 @@ number. Fold 2 is the selection fold; fold 1 is a sanity check only.
   league-level lag columns are near-constant inside a fold, which gives them a large standardised
   coefficient that extrapolates badly; it is kept as the comparison point for the relative
   parameterisation.
-- Not yet built: prediction intervals, so the 80% coverage criterion is untested. Fold 3 has not
-  been run, and the design is not frozen.
+- Fold 3 has not been run, and the design is not frozen.
+
+80% prediction intervals (`src/mlb_outlook/models/intervals.py`), coverage and mean width on
+fold 2, extended window. Each wraps the same point forecaster, so these compare uncertainty
+estimates rather than forecasts:
+
+| Approach | Coverage | Mean width |
+|---|---|---|
+| **residual quantiles by PA bucket** | **0.815** | **0.0874** |
+| split conformal | 0.840 | 0.0917 |
+| split conformal, PA buckets | 0.837 | 0.0916 |
+| quantile regression on residuals | 0.801 | 0.0857 |
+
+All four land inside the pre-registered 75-85% range on fold 2. Residual quantiles by PA bucket
+are the current pick: they keep the full-data point fit, and per-bucket coverage is flatter
+(0.800 / 0.798 / 0.844 across the three PA buckets) than a constant width gives
+(0.800 / 0.845 / 0.867). Both in-sample approaches need the wide training window -- on fold 1's
+one-season base window, residual quantiles cover 0.628 and quantile regression 0.480.
 
 ## Data
 - Statcast via `pybaseball`, MLB Stats API and the Chadwick register for player IDs. Seasons 2015-2026 are pulled for features and lag history.
