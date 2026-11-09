@@ -8,6 +8,7 @@ from mlb_outlook.config import load_folds_config
 from mlb_outlook.evaluation.harness import fold_frames, run_all
 from mlb_outlook.features.asof import build_features
 from mlb_outlook.models.baselines import Forecaster, LastSeason, MarcelBaseline, Weighted3
+from mlb_outlook.models.relative import relative_ridge
 from mlb_outlook.models.ridge import DEFAULT_FEATURES, RidgeForecaster
 
 CFG = load_folds_config("configs/folds.yaml")
@@ -100,15 +101,19 @@ FACTORIES = {
     "weighted3": Weighted3,
     "marcel": MarcelBaseline,
     "ridge": RidgeForecaster,
+    "ridge_rel": relative_ridge,
 }
 
 
-def test_integration_beats_last_season(seasons_df):
-    res = run_all(seasons_df, CFG, FACTORIES, allow_unfrozen=True)
-    mae = res.groupby("model")["mae"].mean()
+@pytest.mark.parametrize("extended", [False, True], ids=["base", "extended"])
+def test_integration_beats_the_baselines(seasons_df, extended):
+    res = run_all(seasons_df, CFG, FACTORIES, allow_unfrozen=True, extended=extended)
+    mae = res.pivot_table(index="model", columns="fold", values="mae")
     assert res["fold"].nunique() == len(CFG.folds)
-    assert mae["marcel"] < mae["last_season"]
-    assert mae["ridge"] < mae["last_season"]
+    assert (mae.loc["marcel"] < mae.loc["last_season"]).all()
+    # The league-relative model is the one being selected; it should win on every fold.
+    assert (mae.loc["ridge_rel"] < mae.loc["last_season"]).all()
+    assert (mae.loc["ridge_rel"] < mae.loc["marcel"]).all()
 
 
 @pytest.mark.parametrize("fold", CFG.folds, ids=lambda f: f.name)

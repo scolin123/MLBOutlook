@@ -14,7 +14,12 @@ import pandas as pd
 import pytest
 from pandas.testing import assert_frame_equal
 
-from mlb_outlook.features.asof import TARGET_COLUMNS, build_features, feature_columns
+from mlb_outlook.features.asof import (
+    QOC_COLUMNS,
+    TARGET_COLUMNS,
+    build_features,
+    feature_columns,
+)
 
 COLS = ["player_id", "season", "age", "pa", "woba", "k_pct", "bb_pct"]
 ROWS = [
@@ -39,9 +44,9 @@ def test_column_names_and_order(tiny):
     out = build_features(tiny, 2024)
     expected = ["player_id", "target_season", "max_source_season", "age_target", "lg_woba_hat"]
     for k in (1, 2, 3):
+        for name in ("woba", *QOC_COLUMNS):
+            expected += [f"{name}_lag{k}", f"{name}_rel_lag{k}"]
         expected += [
-            f"woba_lag{k}",
-            f"woba_rel_lag{k}",
             f"pa_lag{k}",
             f"k_pct_lag{k}",
             f"bb_pct_lag{k}",
@@ -194,3 +199,44 @@ def test_short_season_flag_does_not_touch_other_columns(tiny):
     flagged = build_features(tiny, 2024, flag_seasons=(2021, 2022))
     shared = [c for c in plain.columns if not c.startswith("short_lag")]
     assert_frame_equal(plain[shared], flagged[shared])
+
+
+@pytest.fixture
+def tiny_qoc(tiny):
+    """The same fixture with Statcast columns: xwOBA is wOBA + .010 for every hitter."""
+    df = tiny.copy()
+    df["xwoba"] = df["woba"] + 0.010
+    df["avg_ev"] = 88.0 + 100 * (df["woba"] - 0.300)
+    df["barrel_pct"] = 0.06
+    df["hard_hit_pct"] = 0.40
+    return df
+
+
+def test_contact_quality_lags_and_league_means(tiny_qoc):
+    row = build_features(tiny_qoc, 2024).iloc[0]
+    assert row["xwoba_lag1"] == pytest.approx(0.350)
+    assert row["avg_ev_lag1"] == pytest.approx(88.0 + 100 * 0.040)
+    assert row["hard_hit_pct_lag2"] == pytest.approx(0.40)
+    # Every hitter's xwOBA is wOBA + .010, so the league mean shifts by exactly .010 and the
+    # relative value has to match the wOBA one.
+    assert row["xwoba_rel_lag1"] == pytest.approx(row["woba_rel_lag1"])
+    assert row["barrel_pct_rel_lag1"] == pytest.approx(0.0)  # identical for everyone
+
+
+def test_league_mean_skips_hitters_missing_the_metric(tiny_qoc):
+    df = tiny_qoc.copy()
+    df.loc[(df["player_id"] == 2) & (df["season"] == 2023), "avg_ev"] = np.nan
+    ev1 = 88.0 + 100 * (0.340 - 0.300)  # P1, 600 PA
+    ev3 = 88.0 + 100 * (0.400 - 0.300)  # P3, 80 PA
+    # P2's 300 PA leave the weighted mean entirely rather than counting as zero.
+    expected = (600 * ev1 + 80 * ev3) / 680
+    row = build_features(df, 2024).iloc[0]
+    assert row["avg_ev_rel_lag1"] == pytest.approx(ev1 - expected)
+
+
+def test_missing_source_column_gives_nan_lags(tiny):
+    out = build_features(tiny, 2024)  # the tiny fixture carries no Statcast columns
+    for name in QOC_COLUMNS:
+        assert out[f"{name}_lag1"].isna().all()
+        assert out[f"{name}_rel_lag1"].isna().all()
+    assert out["woba_lag1"].notna().all()  # the wOBA lags are unaffected

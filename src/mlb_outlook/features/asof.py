@@ -13,6 +13,12 @@ import pandas as pd
 
 ASOF_COLUMNS = ["player_id", "target_season", "max_source_season", "n_source_seasons"]
 TARGET_COLUMNS = ["y_woba", "y_pa", "y_lg_woba"]
+# Statcast quality of contact, as ingested from Savant.
+QOC_COLUMNS = ("xwoba", "avg_ev", "barrel_pct", "hard_hit_pct")
+# Season rates that get both an absolute and a league-relative lag. Contact quality drifts
+# with the environment too (league exit velocity and barrel rate have both risen), so the
+# relative form is what a model should lean on.
+RELATIVE_SOURCES = ("woba", *QOC_COLUMNS)
 
 
 def build_asof_rows(df: pd.DataFrame, target_season: int) -> pd.DataFrame:
@@ -33,13 +39,20 @@ def build_asof_rows(df: pd.DataFrame, target_season: int) -> pd.DataFrame:
     return out.sort_values("player_id").reset_index(drop=True)
 
 
-def _league_woba(df: pd.DataFrame, seasons: list[int]) -> dict[int, float]:
-    """PA-weighted mean wOBA over all players, per season (NaN if the season has no rows)."""
+def _league_rate(df: pd.DataFrame, seasons: list[int], col: str = "woba") -> dict[int, float]:
+    """PA-weighted league mean of `col` per season.
+
+    NaN if the season has no usable rows, which also covers a source column the table does
+    not carry at all. Players missing `col` (no tracked batted balls) are left out of both
+    sides of the weighted mean rather than counted as zero.
+    """
     out: dict[int, float] = {}
+    if col not in df.columns:
+        return dict.fromkeys(seasons, np.nan)
     for s in seasons:
-        rows = df.loc[df["season"] == s]
+        rows = df.loc[(df["season"] == s) & df[col].notna()]
         total_pa = rows["pa"].sum()
-        out[s] = float((rows["woba"] * rows["pa"]).sum() / total_pa) if total_pa > 0 else np.nan
+        out[s] = float((rows[col] * rows["pa"]).sum() / total_pa) if total_pa > 0 else np.nan
     return out
 
 
@@ -47,9 +60,9 @@ def feature_columns(lags: int = 3) -> list[str]:
     """Output column order of `build_features` (without target columns)."""
     cols = ["player_id", "target_season", "max_source_season", "age_target", "lg_woba_hat"]
     for k in range(1, lags + 1):
+        for name in RELATIVE_SOURCES:
+            cols += [f"{name}_lag{k}", f"{name}_rel_lag{k}"]
         cols += [
-            f"woba_lag{k}",
-            f"woba_rel_lag{k}",
             f"pa_lag{k}",
             f"k_pct_lag{k}",
             f"bb_pct_lag{k}",
@@ -74,6 +87,10 @@ def build_features(
 
     `flag_seasons` are seasons whose rates come from an abnormal schedule (2020). They are
     not dropped: each lag gets a `short_lag{k}` indicator so a model can fit them apart.
+
+    Each rate in `RELATIVE_SOURCES` yields `<name>_lag{k}` and `<name>_rel_lag{k}` (the lag
+    minus its own season's league mean). A source column the table does not carry gives NaN
+    lags, never zero.
     """
     prior = df.loc[df["season"] < target_season]
     last = prior.loc[(prior["season"] == target_season - 1) & (prior["pa"] >= min_pa_feature)]
@@ -86,7 +103,8 @@ def build_features(
         }
     )
     lag_seasons = [target_season - k for k in range(1, lags + 1)]
-    league = _league_woba(prior, lag_seasons)
+    leagues = {name: _league_rate(prior, lag_seasons, name) for name in RELATIVE_SOURCES}
+    league = leagues["woba"]
     # Forecast-date estimate of the target season's league level: last season's, a random walk.
     # The target season's own league wOBA is unknowable here, so it is a `y_` column instead.
     out["lg_woba_hat"] = league[target_season - 1]
@@ -96,8 +114,10 @@ def build_features(
         rows = rows.set_index("player_id")
         ids = out["player_id"]
         have = ids.isin(rows.index)
-        out[f"woba_lag{k}"] = ids.map(rows["woba"]).astype("float64")
-        out[f"woba_rel_lag{k}"] = out[f"woba_lag{k}"] - league[season]
+        for name in RELATIVE_SOURCES:
+            lagged = ids.map(rows[name]).astype("float64") if name in rows else np.nan
+            out[f"{name}_lag{k}"] = lagged
+            out[f"{name}_rel_lag{k}"] = out[f"{name}_lag{k}"] - leagues[name][season]
         out[f"pa_lag{k}"] = ids.map(rows["pa"]).fillna(0).astype("int64")
         out[f"k_pct_lag{k}"] = ids.map(rows["k_pct"]).astype("float64")
         out[f"bb_pct_lag{k}"] = ids.map(rows["bb_pct"]).astype("float64")
@@ -115,5 +135,5 @@ def build_features(
         out["y_pa"] = out["player_id"].map(tgt["pa"])
         out = out.loc[out["y_pa"].notna()].copy()
         out["y_pa"] = out["y_pa"].astype("int64")
-        out["y_lg_woba"] = _league_woba(df, [target_season])[target_season]
+        out["y_lg_woba"] = _league_rate(df, [target_season])[target_season]
     return out.reset_index(drop=True)

@@ -6,7 +6,12 @@ players traded mid-season into a single line, so no ID mapping is needed here.
 Raw responses are cached to ``data/raw/savant_batting_<year>.csv`` and never
 re-downloaded unless ``--refresh`` is passed. The cleaned table is written to
 ``data/processed/hitter_seasons.parquet`` with the columns the feature builder
-expects: player_id, season, age, pa, woba, k_pct, bb_pct (plus name).
+expects: player_id, season, age, pa, woba, xwoba, k_pct, bb_pct and the
+quality-of-contact fields avg_ev, barrel_pct, hard_hit_pct (plus name).
+
+A cached CSV that predates a change to ``SELECTIONS`` is re-downloaded; the
+quality-of-contact fields are blank for hitters with no tracked batted balls and
+stay missing (never zero).
 
 Usage:
     uv run python -m mlb_outlook.ingestion.savant --start 2015 --end 2026
@@ -23,10 +28,26 @@ import pandas as pd
 import requests
 
 URL = "https://baseballsavant.mlb.com/leaderboard/custom"
-SELECTIONS = "pa,k_percent,bb_percent,woba,player_age"
+SELECTIONS = (
+    "pa,k_percent,bb_percent,woba,xwoba,player_age,"
+    "exit_velocity_avg,barrel_batted_rate,hard_hit_percent"
+)
 RAW_DIR = Path("data/raw")
 OUT_PATH = Path("data/processed/hitter_seasons.parquet")
-COLUMNS = ["player_id", "name", "season", "age", "pa", "woba", "k_pct", "bb_pct"]
+COLUMNS = [
+    "player_id",
+    "name",
+    "season",
+    "age",
+    "pa",
+    "woba",
+    "xwoba",
+    "k_pct",
+    "bb_pct",
+    "avg_ev",
+    "barrel_pct",
+    "hard_hit_pct",
+]
 HEADERS = {"User-Agent": "mlb-outlook research project (personal, non-commercial)"}
 
 # Savant column -> our column
@@ -36,9 +57,15 @@ RENAME = {
     "player_age": "age",
     "pa": "pa",
     "woba": "woba",
+    "xwoba": "xwoba",
     "k_percent": "k_pct",
     "bb_percent": "bb_pct",
+    "exit_velocity_avg": "avg_ev",
+    "barrel_batted_rate": "barrel_pct",
+    "hard_hit_percent": "hard_hit_pct",
 }
+# Savant reports these as percentages; we store fractions.
+PERCENT_COLUMNS = ("k_pct", "bb_pct", "barrel_pct", "hard_hit_pct")
 
 
 def season_params(year: int) -> dict[str, str]:
@@ -66,6 +93,12 @@ def fetch_season_csv(year: int, session: requests.Session | None = None) -> str:
     return text
 
 
+def header_columns(text: str) -> list[str]:
+    """Column names from a CSV header line (good enough to spot a stale cache)."""
+    first = text.splitlines()[0] if text else ""
+    return [c.strip().strip('"') for c in first.split(",")]
+
+
 def parse_season_csv(text: str, year: int) -> pd.DataFrame:
     """Turn Savant CSV text into rows of COLUMNS. Rates become fractions (22.5 -> 0.225)."""
     raw = pd.read_csv(io.StringIO(text))
@@ -80,11 +113,11 @@ def parse_season_csv(text: str, year: int) -> pd.DataFrame:
         raise ValueError(f"{year}: CSV contains rows for other seasons")
     df = df.dropna(subset=["player_id", "pa", "woba"])
     df = df[df["pa"] > 0].copy()
-    df["k_pct"] = df["k_pct"].astype(float) / 100.0
-    df["bb_pct"] = df["bb_pct"].astype(float) / 100.0
+    for col in PERCENT_COLUMNS:
+        df[col] = df[col].astype(float) / 100.0
     df = df.astype(
         {"player_id": "int64", "season": "int64", "age": "int64", "pa": "int64",
-         "woba": "float64"}
+         "woba": "float64", "xwoba": "float64", "avg_ev": "float64"}
     )
     if df["player_id"].duplicated().any():
         raise ValueError(f"{year}: duplicate player_id rows (expected one line per player)")
@@ -96,13 +129,25 @@ def validate(df: pd.DataFrame) -> list[str]:
     problems = []
     if df.duplicated(["player_id", "season"]).any():
         problems.append("duplicate (player_id, season) rows")
-    if not df["woba"].between(0, 2.1).all():
-        problems.append("woba outside [0, 2.1]")
-    for c in ("k_pct", "bb_pct"):
+    for c in ("woba", "xwoba"):
+        if not df[c].dropna().between(0, 2.1).all():
+            problems.append(f"{c} outside [0, 2.1]")
+    for c in ("k_pct", "bb_pct", "barrel_pct", "hard_hit_pct"):
         if not df[c].dropna().between(0, 1).all():
             problems.append(f"{c} outside [0, 1]")
+    # A hitter with one tracked batted ball can average anything, so the loose bound is wide.
+    if not df["avg_ev"].dropna().between(20, 115).all():
+        problems.append("avg_ev outside [20, 115] mph")
     if not df["age"].between(16, 50).all():
         problems.append("age outside [16, 50]")
+    # Quality of contact needs tracked batted balls; it should be there for regulars.
+    regulars = df[df["pa"] >= 100]
+    for c in ("xwoba", "avg_ev", "barrel_pct", "hard_hit_pct"):
+        missing = regulars[c].isna().mean()
+        if missing > 0.02:
+            problems.append(f"{c}: {missing:.1%} of 100+ PA hitters missing")
+    if not regulars["avg_ev"].dropna().between(75, 100).all():
+        problems.append("avg_ev outside [75, 100] mph for a 100+ PA hitter")
     for season, g in df.groupby("season"):
         lg = (g["woba"] * g["pa"]).sum() / g["pa"].sum()
         if not 0.28 <= lg <= 0.35:
@@ -119,10 +164,14 @@ def pull(start: int, end: int, *, refresh: bool = False, pause: float = 2.0) -> 
     frames = []
     for year in range(start, end + 1):
         cache = RAW_DIR / f"savant_batting_{year}.csv"
-        if cache.exists() and not refresh:
-            text = cache.read_text(encoding="utf-8")
+        cached = cache.read_text(encoding="utf-8") if cache.exists() else None
+        stale = cached is not None and any(c not in header_columns(cached) for c in RENAME)
+        if cached is not None and not refresh and not stale:
+            text = cached
             print(f"{year}: cached")
         else:
+            if stale:
+                print(f"{year}: cached CSV predates the current fields, refetching")
             text = fetch_season_csv(year, session)
             cache.write_text(text, encoding="utf-8")
             print(f"{year}: downloaded")
@@ -150,6 +199,8 @@ def main(argv: list[str] | None = None) -> None:
                 "hitters": len(g),
                 "100+PA": int((g["pa"] >= 100).sum()),
                 "lg_woba": round((g["woba"] * g["pa"]).sum() / g["pa"].sum(), 3),
+                "lg_xwoba": round((g["xwoba"] * g["pa"]).sum() / g["pa"].sum(), 3),
+                "no_qoc": int(g.loc[g["pa"] >= 100, "avg_ev"].isna().sum()),
             }
         ),
         include_groups=False,

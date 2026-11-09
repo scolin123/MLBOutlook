@@ -12,15 +12,38 @@ from sklearn.preprocessing import StandardScaler
 
 DEFAULT_FEATURES = tuple(
     f"{name}_lag{k}"
-    for name in ("woba", "pa", "k_pct", "bb_pct", "lg_woba", "miss", "short")
+    for name in (
+        "woba",
+        "xwoba",
+        "avg_ev",
+        "barrel_pct",
+        "hard_hit_pct",
+        "pa",
+        "k_pct",
+        "bb_pct",
+        "lg_woba",
+        "miss",
+        "short",
+    )
     for k in (1, 2, 3)
 ) + ("age_target",)
 
-# League-relative variant: the wOBA lags carry their season's league level already, so the
+# League-relative variant: the rate lags carry their season's league level already, so the
 # `lg_woba` lags drop out. Used with `models.relative.LeagueRelative`.
 RELATIVE_FEATURES = tuple(
     f"{name}_lag{k}"
-    for name in ("woba_rel", "pa", "k_pct", "bb_pct", "miss", "short")
+    for name in (
+        "woba_rel",
+        "xwoba_rel",
+        "avg_ev_rel",
+        "barrel_pct_rel",
+        "hard_hit_pct_rel",
+        "pa",
+        "k_pct",
+        "bb_pct",
+        "miss",
+        "short",
+    )
     for k in (1, 2, 3)
 ) + ("age_target",)
 
