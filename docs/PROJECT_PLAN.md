@@ -66,6 +66,41 @@ Notes:
 - Ablations: remove park, Statcast contact quality, age, shrinkage prior one at a time.
 - Historical decision simulation: top-25 buy-low lists each fold, realized outcome vs baseline.
 
+### Results to date (2026-11-09, folds 1-2 only)
+
+Real 2015-2026 Savant hitter seasons; MAE on next-season wOBA, `base / extended` training window.
+Baselines do not train, so the window does not move them.
+
+| Model | fold1 (2024) | fold2 (2025) |
+|---|---|---|
+| last season | 0.0359 | 0.0325 |
+| 3-year weighted | 0.0333 | 0.0306 |
+| Marcel | 0.0310 | 0.0285 |
+| ridge, absolute features | 0.0322 / 0.0312 | 0.0265 / 0.0289 |
+| **ridge_rel** | 0.0310 / **0.0282** | 0.0266 / **0.0263** |
+
+Decisions taken on fold 2, in order, one change at a time:
+1. Forecast wOBA relative to the league average (`LeagueRelative` + `woba_rel_lag{k}`), re-levelled
+   with `lg_woba_hat`, the prior season's league wOBA. Fold 2 bias +0.0058 -> -0.0017.
+2. Extended training window (targets 2016-2019, 2021-2022; 2020 never a target, flagged per lag
+   with `short_lag{k}`). Fold 1 0.0333 -> 0.0303; fold 2 roughly flat.
+3. Statcast quality of contact (xwOBA, average exit velocity, barrel%, hard-hit%), absolute and
+   league-relative lags. Fold 2 0.0271 -> 0.0263, fold 1 0.0303 -> 0.0282.
+
+Selected configuration: `ridge_rel` on the extended window. Against Marcel on fold 2, paired
+bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. The MAE half of the
+pre-registered criterion is met on fold 2; the interval-coverage half is untested until intervals
+exist. Fold 3 has not been run and the design is not frozen.
+
+Open points from these runs:
+- The absolute-feature ridge degrades on the wider window (fold 2 bias -0.0141) and on synthetic
+  two-season windows it blows up (MAE 0.068): near-constant `lg_woba_lag` columns get a large
+  standardised coefficient and extrapolate. Decide before the freeze whether it stays as the
+  absolute-parameterisation reference or is dropped.
+- The league level for the target season is a random walk (prior season's league wOBA). A better
+  estimator is the obvious next lever on fold-1-style environment shifts, but fitting one on the
+  full 2015-2026 series would peek at fold 3's test season.
+
 ## 7. Production forecast (2027)
 After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the repo and publish before the 2027 season. Score them after 2027 as a prospective test.
 

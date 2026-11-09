@@ -4,7 +4,9 @@
 
 MLB hitter forecasting for baseball operations: next-season projections with calibrated uncertainty, breakout/regression probabilities derived from the forecast distribution, historical comparables, and a buy-low / sell-high scouting dashboard.
 
-**Status:** v1 in development. Scope is MLB hitters only. No results yet; this README will be updated as evaluation folds are run.
+**Status:** v1 in development. Scope is MLB hitters only. Folds 1-2 run on real 2015-2026
+Savant data; fold 3 (2026) stays untouched until the design freeze. See
+[Results so far](#results-so-far).
 
 ## Questions v1 answers
 1. Which hitters are likely to outperform what their recent results suggest (buy-low), and which to underperform (sell-high)?
@@ -36,6 +38,36 @@ Expanding-window folds; the model is re-initialized from scratch for each fold. 
 - Success criteria are fixed before the 2026 fold is run: beat Marcel MAE on folds 2 and 3 with a bootstrap CI excluding zero, and 80% intervals covering 75-85% of outcomes. If they are not met, that is reported as-is.
 - Ablations remove park, contact-quality, age, and shrinkage features one at a time.
 - A leakage test (`tests/test_no_leakage.py`) asserts no feature row uses data from the target season or later.
+
+### Results so far
+
+MAE on next-season wOBA, from `scripts/run_folds.py`, which writes `artifacts/fold_results.csv`.
+`ridge_rel` forecasts wOBA relative to the league average and puts the level back with the prior
+season's league wOBA; "extended" is the wider training window from `folds.yaml` (targets 2016-2019
+and 2021-2022 added, 2020 flagged as a lag season rather than trained on).
+
+| Model | fold1 MAE (2024) | fold2 MAE (2025) |
+|---|---|---|
+| last season | 0.0359 | 0.0325 |
+| 3-year weighted | 0.0333 | 0.0306 |
+| Marcel | 0.0310 | 0.0285 |
+| ridge, absolute features | 0.0322 / 0.0312 | 0.0265 / 0.0289 |
+| **ridge_rel** | 0.0310 / **0.0282** | 0.0266 / **0.0263** |
+
+`base / extended` training window. The baselines do not train, so both windows give them the same
+number. Fold 2 is the selection fold; fold 1 is a sanity check only.
+
+- Selected on fold 2: `ridge_rel` on the extended window. MAE 0.0263 against Marcel's 0.0285,
+  paired bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 against 0.0368, bias -0.0013.
+- Both folds over-predict less than Marcel does, but fold 1 still over-predicts (bias +0.0111,
+  Marcel +0.0151): league wOBA fell .3184 to .3102 going into 2024, and a forecast-date estimate
+  built from prior seasons cannot see that coming.
+- The absolute-feature ridge gets *worse* on the wider window (fold 2 bias -0.0141). Its
+  league-level lag columns are near-constant inside a fold, which gives them a large standardised
+  coefficient that extrapolates badly; it is kept as the comparison point for the relative
+  parameterisation.
+- Not yet built: prediction intervals, so the 80% coverage criterion is untested. Fold 3 has not
+  been run, and the design is not frozen.
 
 ## Data
 - Statcast via `pybaseball`, MLB Stats API and the Chadwick register for player IDs. Seasons 2015-2026 are pulled for features and lag history.
