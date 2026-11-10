@@ -16,6 +16,7 @@ import pytest
 
 from mlb_outlook.config import Fold, load_folds_config
 from mlb_outlook.evaluation.calibration import RELIABILITY_COLUMNS, SCORE_COLUMNS
+from mlb_outlook.evaluation.diagnostics import COVERAGE_COLUMNS, POPULATION_COLUMNS
 from mlb_outlook.evaluation.harness import RESULT_COLUMNS
 from mlb_outlook.models.probabilities import LABELS, THRESHOLD
 
@@ -148,32 +149,7 @@ def test_main_refuses_an_unknown_rehearsal_fold(capsys):
     assert "refused" in capsys.readouterr().out
 
 
-# ---- per-bucket coverage ----
 
-
-def test_bucket_labels_name_every_bucket_pa_buckets_can_produce():
-    assert holdout.bucket_labels((300, 500)) == [
-        "pa_lag1 < 300",
-        "300 <= pa_lag1 < 500",
-        "pa_lag1 >= 500",
-    ]
-
-
-def test_per_bucket_coverage_splits_by_lag1_pa():
-    test = pd.DataFrame({"pa_lag1": [100.0, 200.0, 400.0, 600.0], "y_woba": [0.3] * 4})
-    # The first two rows are covered, the third is not, the fourth is.
-    bounds = pd.DataFrame({"lo": [0.2, 0.2, 0.4, 0.2], "hi": [0.4, 0.4, 0.5, 0.4]})
-    table = holdout.per_bucket_coverage(bounds, test)
-    assert list(table["n"]) == [2, 1, 1]
-    assert list(table["coverage"]) == [1.0, 0.0, 1.0]
-    assert list(table["range"]) == holdout.bucket_labels()
-
-
-def test_per_bucket_coverage_skips_an_empty_bucket():
-    test = pd.DataFrame({"pa_lag1": [600.0, 700.0], "y_woba": [0.3, 0.3]})
-    bounds = pd.DataFrame({"lo": [0.2, 0.2], "hi": [0.4, 0.4]})
-    table = holdout.per_bucket_coverage(bounds, test)
-    assert list(table["bucket"]) == [2]
 
 
 # ---- the verdict ----
@@ -238,7 +214,8 @@ def test_run_holdout_reports_and_writes_every_frame(seasons_df, tmp_path, capsys
     frames = holdout.run_holdout(seasons_df, SELECTION_FOLD, CFG, out_dir=tmp_path)
     assert set(frames) == {
         "point",
-        "interval_buckets",
+        "interval_coverage",
+        "population",
         "probabilities",
         "reliability",
         "verdict",
@@ -259,6 +236,26 @@ def test_run_holdout_reports_and_writes_every_frame(seasons_df, tmp_path, capsys
     out = capsys.readouterr().out
     assert "PASS / FAIL" in out
     assert "precision@10" in out
+    assert "conditional on" in out  # the population caveat is printed, not just written
+
+
+def test_run_holdout_slices_the_coverage_two_ways(seasons_df, tmp_path):
+    """Both groupings, on the same bounds, each accounting for every test row."""
+    frames = holdout.run_holdout(seasons_df, SELECTION_FOLD, CFG, out_dir=tmp_path)
+    coverage = frames["interval_coverage"]
+    assert list(coverage.columns) == COVERAGE_COLUMNS
+    assert set(coverage["grouping"]) == {"pa_lag1", "age_target"}
+    n_test = int(frames["point"].set_index("model").loc[holdout.MODEL, "n_test"])
+    for _, part in coverage.groupby("grouping"):
+        assert part["n"].sum() == n_test
+
+
+def test_run_holdout_accounts_for_the_population(seasons_df, tmp_path):
+    frames = holdout.run_holdout(seasons_df, SELECTION_FOLD, CFG, out_dir=tmp_path)
+    population = frames["population"]
+    assert list(population.columns) == POPULATION_COLUMNS
+    scored = int(population["n"].iloc[-1])
+    assert scored == int(frames["point"].set_index("model").loc[holdout.MODEL, "n_test"])
 
 
 def test_run_holdout_scores_the_registered_threshold_only(seasons_df, tmp_path):

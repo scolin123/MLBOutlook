@@ -277,6 +277,36 @@ CI clear of zero, and 80% coverage inside 75-85% for every approach tried.
   make its in-sample residual quantiles far too optimistic. Residual quantiles have the same
   weakness in milder form (0.628 on that window). Both need the wide window.
 
+#### Coverage by slice (`evaluation/diagnostics.py`), fold 2, extended window
+
+The pre-registered criterion is the aggregate coverage, and the aggregate is 0.815. These are
+the same bounds sliced two ways -- by the lag-1 PA buckets the intervals are built on, and by
+age brackets they are not -- printed by `run_holdout.py` for whichever fold it runs.
+
+| Slice | n | Coverage | Mean width |
+|---|---|---|---|
+| pa_lag1 < 300 | 105 | 0.800 | 0.0925 |
+| 300 <= pa_lag1 < 500 | 129 | 0.798 | 0.0862 |
+| pa_lag1 >= 500 | 128 | 0.844 | 0.0842 |
+| age < 26 | 77 | **0.870** | 0.0883 |
+| 26 <= age < 31 | 186 | 0.780 | 0.0872 |
+| age >= 31 | 99 | 0.838 | 0.0868 |
+
+- **The youngest bracket is the one slice outside the 75-85% band**, at 0.870 -- the intervals
+  are too wide for hitters under 26. At 77 rows a coverage estimate carries about +/-0.08 at
+  95%, so this is not clearly outside; it is flagged, not fixed.
+- **The width hardly moves across age** (0.0868 to 0.0883) because the intervals bucket on
+  playing time, not age. So the spread in coverage across brackets is a statement about how
+  big the errors are by age, not about how the width is being chosen -- which is the opposite
+  of the PA slices, where the width does the work (0.0925 down to 0.0842).
+- **Nothing is changed in response.** Adding age to the interval bucketing, or letting the
+  residual spread depend on features generally, is the v2 lever -- and `quantile_reg` already
+  does the general version, at 0.801 aggregate on this fold. Picking it now, on the strength of
+  one 77-row bracket seen after the fact, is what the freeze exists to prevent.
+- The holdout prints the same two slices for fold 3. A bracket outside the band there is a
+  finding for the write-up and for v2; it does not change the verdict, which reads the
+  aggregate.
+
 Open points from these runs:
 - The absolute-feature ridge degrades on the wider window (fold 2 bias -0.0141) and on synthetic
   two-season windows it blows up (MAE 0.068): near-constant `lg_woba_lag` columns get a large

@@ -7,7 +7,7 @@ what section 4 lists and nothing else:
 - fold 3 on the extended window, once, with the selected configuration;
 - `ridge_rel` MAE and bias against all three baselines;
 - the paired bootstrap of `ridge_rel - MarcelBaseline` MAE;
-- `resid_q_pa` 80% coverage, mean width, and coverage per lag-1 PA bucket;
+- `resid_q_pa` 80% coverage, mean width, and coverage per lag-1 PA bucket and age bracket;
 - breakout and regression Brier, skill against the training base rate, the reliability
   deciles, and precision at the top 10 and 25;
 - the pass/fail verdict from section 6;
@@ -43,19 +43,18 @@ import pandas as pd
 
 from mlb_outlook.config import Fold, FoldsConfig, load_folds_config
 from mlb_outlook.evaluation.calibration import PRECISION_KS, run_probability_fold
+from mlb_outlook.evaluation.diagnostics import (
+    coverage_by_age,
+    coverage_by_pa,
+    population_accounting,
+)
 from mlb_outlook.evaluation.harness import (
     fold_frames,
-    interval_metrics,
     paired_bootstrap_mae_diff,
     run_fold,
 )
 from mlb_outlook.models.baselines import LastSeason, MarcelBaseline, Weighted3
-from mlb_outlook.models.intervals import (
-    DEFAULT_LEVEL,
-    DEFAULT_PA_EDGES,
-    ResidualQuantileIntervals,
-    pa_buckets,
-)
+from mlb_outlook.models.intervals import DEFAULT_LEVEL, ResidualQuantileIntervals
 from mlb_outlook.models.probabilities import LABELS, THRESHOLD
 from mlb_outlook.models.relative import relative_ridge
 
@@ -201,44 +200,7 @@ def snapshot_fingerprint(path: Path) -> tuple[str, int]:
 # ---- the report ----
 
 
-def bucket_labels(edges: Sequence[float] = DEFAULT_PA_EDGES) -> list[str]:
-    """Readable names for the `pa_buckets` indices: below the first edge, between, above."""
-    cuts = [int(e) for e in edges]
-    names = [f"pa_lag1 < {cuts[0]}"]
-    names += [f"{lo} <= pa_lag1 < {hi}" for lo, hi in zip(cuts, cuts[1:], strict=False)]
-    names.append(f"pa_lag1 >= {cuts[-1]}")
-    return names
 
-
-def per_bucket_coverage(
-    bounds: pd.DataFrame, test: pd.DataFrame, *, edges: Sequence[float] = DEFAULT_PA_EDGES
-) -> pd.DataFrame:
-    """Coverage and mean width inside each lag-1 PA bucket.
-
-    The aggregate can sit inside 75-85% while a bucket does not, and part-time hitters are
-    the ones a pooled fallback is most likely to mis-serve, so each bucket gets its own row.
-    """
-    buckets = pa_buckets(test, edges)
-    names = bucket_labels(edges)
-    lo = bounds["lo"].to_numpy(dtype=float)
-    hi = bounds["hi"].to_numpy(dtype=float)
-    y = test["y_woba"].to_numpy(dtype=float)
-    rows = []
-    for b in range(len(names)):
-        inside = buckets == b
-        if not inside.any():
-            continue
-        coverage, width = interval_metrics(lo[inside], hi[inside], y[inside])
-        rows.append(
-            {
-                "bucket": b,
-                "range": names[b],
-                "n": int(inside.sum()),
-                "coverage": coverage,
-                "width": width,
-            }
-        )
-    return pd.DataFrame(rows, columns=["bucket", "range", "n", "coverage", "width"])
 
 
 def verdict_table(
@@ -301,7 +263,12 @@ def run_holdout(
     marcel = FACTORIES[BASELINE]().fit(train, train["y_woba"])
     base_err = np.abs(marcel.predict(test).to_numpy(dtype=float) - truth)
     bootstrap = paired_bootstrap_mae_diff(model_err, base_err)
-    buckets = per_bucket_coverage(intervals.predict_interval(test), test)
+    bounds = intervals.predict_interval(test)
+    # Two slices of the same bounds: the PA buckets the intervals are built on, and age
+    # brackets they are not, so a bracket outside the band is a v2 finding about the width.
+    coverage = pd.concat(
+        [coverage_by_pa(bounds, test), coverage_by_age(bounds, test)], ignore_index=True
+    )
 
     # The registered threshold only. A sweep here would be a choice made after the fact.
     scores, reliability = run_probability_fold(
@@ -310,7 +277,8 @@ def run_holdout(
 
     frames = {
         "point": table,
-        "interval_buckets": buckets,
+        "interval_coverage": coverage,
+        "population": population_accounting(df, fold, cfg),
         "probabilities": scores,
         "reliability": reliability,
         "verdict": verdict_table(table, bootstrap, cfg),
@@ -361,12 +329,25 @@ def print_report(
         f"\n{DEFAULT_LEVEL:.0%} intervals ({INTERVALS}): coverage {row.coverage:.3f} "
         f"(target {cov_lo:.2f}-{cov_hi:.2f}), mean width {row.width:.4f}"
     )
-    print("  bucket                     n   coverage   width")
-    for b in frames["interval_buckets"].itertuples():
-        print(f"  {b.range:22s}  {b.n:>4}      {b.coverage:.3f}  {b.width:.4f}")
+    print("       slice                      n   coverage   width")
+    for grouping, part in frames["interval_coverage"].groupby("grouping", sort=False):
+        print(f"  by {grouping}:")
+        for b in part.itertuples():
+            flag = "    " if cov_lo <= b.coverage <= cov_hi else " OUT"
+            print(f"   {flag} {b.range:22s}  {b.n:>4}      {b.coverage:.3f}  {b.width:.4f}")
 
+    print_population(frames["population"])
     print_probabilities(frames["probabilities"], frames["reliability"])
     print_verdict(frames["verdict"])
+
+
+def print_population(accounting: pd.DataFrame) -> None:
+    """What the scored rows are a subset of: everything here is conditional on playing."""
+    eligible = int(accounting["eligible"].iloc[0])
+    print(f"\npopulation: {eligible} players eligible by prior-season PA")
+    for row in accounting.itertuples():
+        print(f"  {row.bucket:28s} {row.n:>4}   {row.share:6.1%}")
+    print("  every forecast, interval and probability below is conditional on the 100+ row.")
 
 
 def print_probabilities(scores: pd.DataFrame, reliability: pd.DataFrame) -> None:
