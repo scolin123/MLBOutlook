@@ -1,7 +1,8 @@
 # DiamondIQ v1 (revised plan)
 
 Audience: baseball-ops hiring. Target: done by ~Jan 1, 2027, hard stop Feb 2027.
-Scope: MLB hitters only. Pitchers, minors, contracts, counterfactual simulator, and Development Lab are v2.
+Scope: MLB hitters only. Pitchers, minors, contracts, counterfactual simulator, Development Lab,
+and park factors are v2 (see section 6 for what the park deferral costs the ablation set).
 
 ## 1. What v1 answers
 1. Which hitters are likely to outperform what their recent results suggest (buy-low), and which to underperform (sell-high)?
@@ -31,7 +32,10 @@ Scope: MLB hitters only. Pitchers, minors, contracts, counterfactual simulator, 
 - Main model: regularized regression (ridge/elastic net) on lagged skill + Statcast quality-of-contact features + age + PA + park. Gradient boosting only as a comparison.
 - Empirical Bayes shrinkage: tested once as a feature/prior; adopted only if it beats plain ridge by a meaningful margin on CV.
 - Uncertainty: quantile regression or conformal intervals on the same forecaster.
-- Breakout/regression: derived from the forecast distribution, defined as actual minus baseline (Marcel) expectation. No separate classifier, so outputs cannot contradict. Report sensitivity to thresholds.
+- Breakout/regression: derived from the forecast distribution, defined as the target season landing
+  at least 0.030 wOBA above (breakout) or below (regression) a weighted 3-year baseline. No separate
+  classifier, so the probabilities cannot contradict the forecast. Definitions are fixed in section 6
+  before anything was computed; threshold sensitivity is reported.
 - Similarity: standardized skill/age features + nearest neighbors, show comps' next-season outcomes.
 - Undervalued (no contracts): forecast vs Marcel/public projection gap, plus xwOBA-wOBA gap, ranked with uncertainty.
 
@@ -63,10 +67,78 @@ Notes:
 - Hyperparameters are tuned by chronological CV inside each training window only.
 - Metrics: MAE/RMSE vs baselines, calibration of intervals/probabilities, Brier/log loss for breakout probabilities, precision at top 10/25 with bootstrap CIs.
 - Pre-registered "success": beats Marcel MAE on folds 2 and 3 with bootstrap CI not crossing zero, and 80% intervals cover 75-85% of outcomes. If not met, report honestly.
-- Ablations: remove park, Statcast contact quality, age, shrinkage prior one at a time.
-  Run on fold 2 only (`scripts/run_ablations.py`); results below. Park features do not exist
-  yet, so that one is still outstanding.
+- Ablations: remove Statcast contact quality, age, shrinkage prior one at a time.
+  Run on fold 2 only (`scripts/run_ablations.py`); results below. Park factors are deferred to
+  v2, so the park ablation is not part of v1 and the park row is dropped from this list rather
+  than left outstanding.
 - Historical decision simulation: top-25 buy-low lists each fold, realized outcome vs baseline.
+
+### Breakout / regression definitions (fixed 2026-11-09, before anything was computed)
+
+Written down and committed before a single probability was computed, so the thresholds
+cannot be picked to flatter the result. Nothing below may move without a note in this
+section saying what changed and why.
+
+**Baseline.** The PA- and recency-weighted 3-year wOBA average: `models.baselines.Weighted3`,
+weights 5/4/3 on lag 1/2/3, PA-weighted inside that, no regression to the mean and no age
+adjustment. *Not Marcel* -- section 4 originally said Marcel, and the switch is deliberate.
+Question 1 asks who outperforms "what their recent results suggest", and the weighted average
+*is* that line: it carries no aging curve and no mean-regression, so a breakout is measured
+against the player's own recent record rather than against a projection that has already
+predicted part of the move. Measuring against Marcel would also make the label partly a
+restatement of the baseline's aging assumptions.
+
+**Labels.** For a player with next-season wOBA `y` and baseline `b`:
+
+| Label | Condition |
+|---|---|
+| breakout | `y >= b + 0.030` |
+| regression | `y <= b - 0.030` |
+| stable | everything in between |
+
+0.030 wOBA is a little over one standard error on a ~500-PA season and roughly the gap
+between an average and a clearly above-average bat. The three labels are mutually exclusive
+and exhaustive, so the probabilities sum to 1 by construction.
+
+**Population.** Exactly the rows the folds already score: at least 100 PA in the lag-1
+feature season and at least 100 PA in the target season (`min_pa` in `folds.yaml`). A player
+with no 100-PA target season has no outcome to score and is counted on neither side -- which
+means these probabilities are conditional on playing again, and the write-up has to say so.
+
+**Predictive distribution.** `F` is the selected configuration's distribution and nothing
+else: the `ridge_rel` point forecast on the extended window, plus the empirical residuals of
+that same fit taken inside the player's lag-1 PA bucket, with the same bucket edges
+(300/500) and the same pooled fallback for a thin bucket as the selected `resid_q_pa`
+intervals. The 10th and 90th percentiles of `F` are therefore exactly the published 80%
+interval -- the probabilities are a reading of the forecast distribution, not a second model,
+so they cannot contradict it. There is no separate classifier.
+
+    P(breakout)   = P(y >= b + 0.030) under F = share of bucket residuals r with point + r >= b + 0.030
+    P(regression) = P(y <= b - 0.030) under F = share of bucket residuals r with point + r <= b - 0.030
+    P(stable)     = 1 - P(breakout) - P(regression)
+
+The distribution is empirical, so a probability is a count over the bucket's residual
+sample and its granularity is 1/n for that bucket. That is a reported property, not a bug
+to smooth away before the freeze.
+
+**Evaluation, fold 2 only.** Fold 3 is not run for this and the design is not frozen.
+- Brier score for P(breakout) and for P(regression) against the realized labels, each
+  compared with a base-rate baseline that predicts the fold's *training-window* base rate for
+  every player (the only base rate available at the forecast date). Reported as the Brier
+  skill score `1 - BS_model / BS_base`, with a paired bootstrap CI on the per-player
+  squared-error difference, same machinery as the MAE comparisons.
+- Reliability table over deciles of predicted probability: n, mean predicted, observed rate,
+  and the gap. Equal-count deciles rather than fixed 0.1-wide bins, because the predictions
+  are skewed toward zero and fixed bins would leave most rows in one bucket.
+- The base rates themselves, train and test, for both labels.
+- Threshold sensitivity at 0.020 / 0.030 / 0.040, with 0.030 the registered threshold. The
+  registered number does not change because a neighbour scores better.
+
+**Pass/fail.** Not pre-registered as a success criterion for the holdout, deliberately: the
+pre-registered criteria stay the two in `folds.yaml` (MAE against Marcel, 80% interval
+coverage). These probabilities are derived from a distribution those criteria already test,
+so a third criterion on the same quantity would be double-counting. Fold 2 reports Brier,
+skill against the base rate, and the reliability gap as descriptive evidence.
 
 ### Results to date (2026-11-09, folds 1-2 only)
 

@@ -18,7 +18,7 @@ Savant data; fold 3 (2026) stays untouched until the design freeze. See
 - **Baselines:** last season, 3-year weighted average, and Marcel (weighted 3-year, regressed to the mean, age-adjusted). Archived public projections (Steamer/ZiPS) if obtainable.
 - **Model:** regularized regression (ridge / elastic net) on lagged skill, Statcast contact-quality features, age, PA, and park. Gradient boosting as a comparison only. Empirical Bayes shrinkage is tested once and adopted only if it clearly beats plain ridge.
 - **Uncertainty:** quantile regression or conformal intervals on the same forecaster.
-- **Breakout / regression:** derived from the forecast distribution and defined as actual minus baseline (Marcel) expectation, so it cannot contradict the forecast. Sensitivity to thresholds is reported.
+- **Breakout / regression:** read off the forecast distribution, so they cannot contradict the forecast. Breakout is a target season at least 0.030 wOBA above a weighted 3-year baseline, regression at least 0.030 below; the definitions were fixed and committed before anything was computed ([PROJECT_PLAN.md](docs/PROJECT_PLAN.md), section 6). Threshold sensitivity is reported.
 - **Similarity:** standardized skill/age features with nearest neighbors, showing comps' next-season outcomes.
 - **Undervalued (no contract data):** forecast vs baseline/public projection gap, plus the xwOBA-wOBA gap, ranked with uncertainty.
 - **Era handling:** 2020 short season flagged or down-weighted; 2021 ball and 2023 rule changes handled by league-season normalization and tested season effects.
@@ -104,8 +104,8 @@ CI clears zero. Contact quality costs the most MAE but its CI touches zero, whic
 same comparison that got it adopted; it is flagged, not acted on. PA and the missing-season
 flags are free to drop. Swapping the league-relative rate lags for absolute ones changes
 nothing -- `RELATIVE_FEATURES` carries no `lg_woba_lag` column to drop in the first place.
-Every ablation stays inside the 75-85% coverage range. Park features do not exist yet, so
-that ablation is still outstanding. See
+Every ablation stays inside the 75-85% coverage range. Park factors are deferred to v2, so
+the park ablation is not part of v1. See
 [PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the per-group reading.
 
 ## Data
@@ -149,10 +149,13 @@ Project scope, models, and evaluation design: [docs/PROJECT_PLAN.md](docs/PROJEC
 ## Roadmap
 Weeks 1-2: data audit, MySQL schema, ID mapping, as-of feature builder, leakage test, Marcel baseline. Weeks 3-5: fold harness, ridge forecaster, intervals, derived breakout probabilities, ablations, design freeze. Weeks 6-7: comps, undervalued ranking, dashboard. Week 8: run fold 3 once, write-up, model card. Week 9: 2027 production forecasts and deploy. Target completion around Jan 1, 2027, with February as buffer.
 
-Out of scope for v1 (planned for v2): pitchers, minor-league projection, contracts and acquisition value, counterfactual team-change simulation, development lab.
+Out of scope for v1 (planned for v2): park factors, pitchers, minor-league projection, contracts and acquisition value, counterfactual team-change simulation, development lab.
 
 ## Limitations
 Public data only. Forecasts are statistical estimates, not guarantees; breakout and undervalued labels describe model expectations, not causal claims. Historical simulations show predictive usefulness, not that a trade would have produced the same result.
+
+- **No park factors in v1.** Park is deferred to v2. A hitter's wOBA carries his home park, and nothing in the feature set separates the two, so a forecast for a hitter who changes parks -- or whose park is re-dimensioned -- absorbs that as a skill change. League-relative normalisation removes the league-wide environment, not the park, and the planned park ablation moves to v2 with the features.
+- **Breakout and regression probabilities are conditional on playing again.** They are scored only on players with at least 100 PA in the target season, matching the fold population, so they say nothing about the chance of losing playing time or missing the season.
 
 ---
 
