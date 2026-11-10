@@ -13,6 +13,11 @@ of per-row squared errors, so the same paired resampling over
 The reliability table bins by equal-count deciles of predicted probability rather than
 fixed 0.1-wide bins, because the predictions are skewed toward zero and fixed bins leave
 most rows in one bucket. Pre-registered in `docs/PROJECT_PLAN.md` section 6.
+
+`precision_at_k` answers the ranking question the scores above do not: of the players the
+model is surest about, how many actually moved. It is reported as evidence and is not a
+success criterion -- the pre-registered criteria stay the MAE and coverage pair in
+`folds.yaml`, and the probabilities are a reading of the distribution those already test.
 """
 
 from __future__ import annotations
@@ -38,6 +43,9 @@ from mlb_outlook.models.probabilities import (
 )
 
 DEFAULT_BINS = 10
+# Top-k cut points for `precision_at_k`, from the metrics list in `docs/PROJECT_PLAN.md`
+# section 6. Fixed rather than configurable, because they name columns in the score frame.
+PRECISION_KS = (10, 25)
 SCORE_COLUMNS = [
     "label",
     "config",
@@ -54,6 +62,7 @@ SCORE_COLUMNS = [
     "ci_low",
     "ci_high",
     "ece",
+    *[f"precision_at_{k}" for k in PRECISION_KS],
     "min_predicted",
     "max_predicted",
 ]
@@ -138,6 +147,26 @@ def reliability_table(prob, outcome, *, n_bins: int = DEFAULT_BINS) -> pd.DataFr
     return pd.DataFrame(rows)
 
 
+def precision_at_k(prob, outcome, k: int) -> float:
+    """Share of the top-`k` rows by predicted probability that realized the label.
+
+    The ranking metric from the section 6 metrics list: of the players the model puts at the
+    top, how many moved. Ties at the cut are broken by input row order, which is fixed for a
+    given data snapshot, so the number is reproducible without being meaningful to a single
+    row. A `k` above the row count scores every row, and the chance level to read it against
+    is the test base rate.
+
+    No bootstrap CI is attached. Resampling rows changes which rows are in the top `k` at
+    all, so the interval would describe a different estimator on each draw; with 362 test
+    rows the honest reading of precision@10 is a count out of ten.
+    """
+    p, y = _aligned(prob, outcome)
+    if k < 1:
+        raise ValueError(f"k must be at least 1, got {k}")
+    top = np.argsort(-p, kind="stable")[: min(k, p.size)]
+    return float(np.mean(y[top]))
+
+
 def expected_calibration_error(table: pd.DataFrame) -> float:
     """Row-count-weighted mean absolute gap of a `reliability_table`."""
     if table.empty:
@@ -182,6 +211,7 @@ def score_probabilities(
         "ci_low": lo,
         "ci_high": hi,
         "ece": expected_calibration_error(table),
+        **{f"precision_at_{k}": precision_at_k(p, y, k) for k in PRECISION_KS},
         "min_predicted": float(np.min(p)),
         "max_predicted": float(np.max(p)),
     }

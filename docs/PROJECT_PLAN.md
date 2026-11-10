@@ -130,6 +130,15 @@ to smooth away before the freeze.
 - Reliability table over deciles of predicted probability: n, mean predicted, observed rate,
   and the gap. Equal-count deciles rather than fixed 0.1-wide bins, because the predictions
   are skewed toward zero and fixed bins would leave most rows in one bucket.
+- Precision at the top 10 and top 25 by predicted probability, for each label, read against
+  the test base rate as the chance level. This is the ranking question the Brier score does
+  not answer -- of the players the model is surest about, how many moved -- and it is the
+  metric the top-25 buy-low list in the decision simulation above is judged on. Evidence,
+  not a criterion.
+  No bootstrap CI is attached to it, which is a deviation from the metrics list in section 6
+  above: resampling rows changes which rows are in the top 10 at all, so the interval would
+  describe a different estimator on each draw. At 362 test rows the honest reading of
+  precision@10 is a count out of ten, and it is reported that way.
 - The base rates themselves, train and test, for both labels.
 - Threshold sensitivity at 0.020 / 0.030 / 0.040, with 0.030 the registered threshold. The
   registered number does not change because a neighbour scores better.
@@ -258,6 +267,20 @@ player the *training* window's base rate, the only one available at the forecast
 
 Both labels beat their base rate with a paired bootstrap CI clear of zero, so the forecast
 distribution carries information about the direction of a move and not only its size.
+
+Precision at the top of the ranking, registered threshold, same 362 rows (`precision_at_10`
+and `precision_at_25` in `artifacts/probability_results.csv`, which carries them for the
+sensitivity thresholds too):
+
+| Label | precision@10 | precision@25 | chance (test base rate) |
+|---|---|---|---|
+| **breakout** | **0.900** (9 of 10) | **0.680** (17 of 25) | 0.171 |
+| **regression** | **0.800** (8 of 10) | **0.600** (15 of 25) | 0.257 |
+
+The top of the breakout ranking is about five times the base rate at k = 10 and four times at
+k = 25, which is the same under-confidence the top decile shows, read as a shortlist instead of
+as a calibration curve. It is evidence and not a criterion, and at these counts one player
+moves precision@10 by 0.100.
 
 Reliability, equal-count deciles of predicted probability (36-37 rows each):
 

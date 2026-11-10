@@ -3,7 +3,12 @@
 Reads the probabilities off the selected configuration's predictive distribution
 (`ridge_rel`, extended window, residuals bucketed by lag-1 PA) and scores them against the
 realized labels: Brier, the skill score against a base-rate baseline, a reliability table
-over deciles of predicted probability, and the base rates themselves.
+over deciles of predicted probability, precision at the top 10 and 25, and the base rates
+themselves.
+
+Precision@k is the ranking read -- of the players the model is surest about, how many moved
+-- and it is evidence, not a criterion: the pre-registered criteria stay the MAE and
+coverage pair in `folds.yaml`.
 
 Definitions are pre-registered in `docs/PROJECT_PLAN.md` section 6 and were committed
 before this script existed. 0.030 is the registered threshold; 0.020 and 0.040 are reported
@@ -23,7 +28,7 @@ from pathlib import Path
 import pandas as pd
 
 from mlb_outlook.config import FoldsConfig, load_folds_config
-from mlb_outlook.evaluation.calibration import run_probability_fold
+from mlb_outlook.evaluation.calibration import PRECISION_KS, run_probability_fold
 from mlb_outlook.models.probabilities import LABELS, THRESHOLD
 
 DATA = Path("data/processed/hitter_seasons.parquet")
@@ -81,6 +86,10 @@ def print_report(scores: pd.DataFrame, reliability: pd.DataFrame) -> None:
             f"{'clear of zero' if r.ci_high < 0 or r.ci_low > 0 else 'spans zero'}"
         )
         print(f"  reliability gap (count-weighted mean |observed - predicted|) {r.ece:.4f}")
+        cells = "   ".join(
+            f"precision@{k} {getattr(r, f'precision_at_{k}'):.3f}" for k in PRECISION_KS
+        )
+        print(f"  {cells}   (chance {r.base_rate_test:.3f}; evidence, not a criterion)")
         part = reliability.loc[
             (reliability["label"] == label) & (reliability["threshold"] == THRESHOLD)
         ]

@@ -135,6 +135,11 @@ probabilities cannot contradict the forecast -- there is no separate classifier.
   the surest calls break out more often than stated. Count-weighted gaps are 0.057 and 0.039.
   Nothing was fitted to correct this -- a calibration map tuned on fold 2 would need its own
   holdout. It goes into the freeze as a reported property.
+- At the top of the ranking, precision@10 is 0.900 for breakout and 0.800 for regression,
+  precision@25 is 0.680 and 0.600, against chance levels of 0.171 and 0.257. That is the
+  shortlist reading of the same under-confidence the top decile shows. It is evidence rather
+  than a criterion, and no bootstrap CI is attached: resampling rows changes which rows are
+  in the top 10 at all. One player moves precision@10 by 0.100.
 - Skill stays positive at thresholds of 0.020 and 0.040 for both labels. The registered 0.030
   does not move because a neighbour scores better.
 

@@ -6,11 +6,13 @@ import pytest
 
 from mlb_outlook.config import load_folds_config
 from mlb_outlook.evaluation.calibration import (
+    PRECISION_KS,
     RELIABILITY_COLUMNS,
     SCORE_COLUMNS,
     base_rate,
     brier_score,
     expected_calibration_error,
+    precision_at_k,
     reliability_table,
     run_probability_fold,
     score_probabilities,
@@ -116,6 +118,40 @@ def test_expected_calibration_error_is_count_weighted():
         expected_calibration_error(table.head(0))
 
 
+# ---- precision at k ----
+
+
+def test_precision_at_k_takes_the_top_k_by_probability():
+    prob = [0.1, 0.9, 0.4, 0.8, 0.2]
+    outcome = [0, 1, 0, 1, 1]
+    assert precision_at_k(prob, outcome, 2) == pytest.approx(1.0)  # 0.9 and 0.8, both hits
+    assert precision_at_k(prob, outcome, 3) == pytest.approx(2 / 3)  # plus 0.4, a miss
+    assert precision_at_k(prob, outcome, 5) == pytest.approx(0.6)  # every row: the base rate
+
+
+def test_precision_at_k_above_the_row_count_scores_every_row():
+    assert precision_at_k([0.9, 0.1], [1, 0], 25) == pytest.approx(0.5)
+
+
+def test_precision_at_k_breaks_ties_by_row_order():
+    """Equal probabilities are taken in input order, so the number is reproducible."""
+    prob = [0.5, 0.5, 0.5, 0.5]
+    assert precision_at_k(prob, [1, 1, 0, 0], 2) == pytest.approx(1.0)
+    assert precision_at_k(prob, [0, 0, 1, 1], 2) == pytest.approx(0.0)
+
+
+def test_precision_at_k_rejects_a_useless_k():
+    with pytest.raises(ValueError, match="k must be at least 1"):
+        precision_at_k([0.5, 0.5], [1, 0], 0)
+
+
+def test_precision_at_k_of_a_perfect_ranking_is_one():
+    outcome = np.array([1] * 20 + [0] * 80)
+    prob = np.where(outcome == 1, 0.9, 0.1)
+    assert precision_at_k(prob, outcome, 10) == pytest.approx(1.0)
+    assert precision_at_k(prob, outcome, 25) == pytest.approx(0.8)  # 20 hits in 25 rows
+
+
 # ---- the combined score ----
 
 
@@ -140,6 +176,17 @@ def test_a_sharper_forecast_scores_positive_skill():
     assert out["ci_high"] < 0  # and clear of zero
     assert out["mean_predicted"] == pytest.approx(0.5)
     assert (out["min_predicted"], out["max_predicted"]) == (0.2, 0.8)
+    # The ranking is perfect here, so every top-k slice is a hit.
+    assert all(out[f"precision_at_{k}"] == pytest.approx(1.0) for k in PRECISION_KS)
+
+
+def test_score_reports_precision_for_every_registered_k():
+    outcome = np.array([1] * 30 + [0] * 70)
+    out = score_probabilities(np.full(100, 0.3), outcome, base_rate_train=0.3)
+    for k in PRECISION_KS:
+        # A flat forecast has no ranking, so precision@k is whatever the first k rows hold.
+        assert out[f"precision_at_{k}"] == pytest.approx(1.0)
+    assert set(f"precision_at_{k}" for k in PRECISION_KS) <= set(SCORE_COLUMNS)
 
 
 def test_score_rejects_an_impossible_base_rate():
