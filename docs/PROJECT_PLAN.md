@@ -162,13 +162,25 @@ Baselines do not train, so the window does not move them.
 | ridge, absolute features | 0.0322 / 0.0312 | 0.0265 / 0.0289 |
 | **ridge_rel** | 0.0310 / **0.0282** | 0.0266 / **0.0263** |
 
-Decisions taken on fold 2, in order, one change at a time:
+Decisions taken on fold 2, in order, one change at a time. *The numbers in this list are
+historical* -- see the note under it:
 1. Forecast wOBA relative to the league average (`LeagueRelative` + `woba_rel_lag{k}`), re-levelled
-   with `lg_woba_hat`, the prior season's league wOBA. Fold 2 bias +0.0058 -> -0.0017.
+   with `lg_woba_hat`, the prior season's league wOBA. Fold 2 bias +0.0058 -> -0.0017 (historical).
 2. Extended training window (targets 2016-2019, 2021-2022; 2020 never a target, flagged per lag
-   with `short_lag{k}`). Fold 1 0.0333 -> 0.0303; fold 2 roughly flat.
+   with `short_lag{k}`). Fold 1 0.0333 -> 0.0303 (historical); fold 2 roughly flat.
 3. Statcast quality of contact (xwOBA, average exit velocity, barrel%, hard-hit%), absolute and
    league-relative lags. Fold 2 0.0271 -> 0.0263, fold 1 0.0303 -> 0.0282.
+
+**Those three lines are a record of the sequence, not a claim about this commit.** Each arrow
+compares two configurations that existed while the decision was being taken, and the left-hand
+one no longer exists in the code: step 1's model had no contact-quality features and no extended
+window, step 2's had no contact quality. So +0.0058, -0.0017, 0.0333, both 0.0303 and 0.0271
+cannot be regenerated from `artifacts/fold_results.csv` at this commit, and the pre-freeze check
+on the numbers does not try to. What *is* current and checked: the endpoints 0.0282 (fold 1,
+extended) and 0.0263 (fold 2, extended), every cell of the table above, and 0.0271 as the
+contact-quality row of the ablation table below, which is the standing evidence for step 3 and
+reproduces it exactly. For the record, fold 2 base `ridge_rel` bias at this commit is -0.0034
+and fold 2 extended is -0.0013; neither is step 1's -0.0017, because neither model is step 1's.
 
 Selected configuration: `ridge_rel` on the extended window. Against Marcel on fold 2, paired
 bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. Fold 3 has not been run
