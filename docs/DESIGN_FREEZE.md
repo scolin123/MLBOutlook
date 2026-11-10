@@ -112,8 +112,10 @@ this file pins. The items stay listed below as the questions they answer.
       write `artifacts/fold3_*.csv`. No model selection, no threshold sweep, no second window.
 
       Done, with precision@10 and @25 added to the probability block. Its gate refuses fold 3
-      unless `fold3.frozen` is `true` **and** HEAD is tagged exactly `design-freeze-v1`, so a
-      flipped flag in an uncommitted file is not enough. `--rehearse fold2` is the test-only
+      unless all three of `fold3.frozen` being `true`, HEAD being tagged exactly
+      `design-freeze-v1`, and `git status --porcelain` printing nothing: a flipped flag in an
+      uncommitted file is not a freeze, and a tagged commit with edits on top of it is not what
+      the tag describes. `--rehearse fold2` is the test-only
       path it was exercised on: it reproduces every published fold 2 number (MAE 0.0263, bias
       -0.0013, bootstrap -0.0023 with CI -0.0036 to -0.0008, coverage 0.815, per-bucket
       0.800 / 0.798 / 0.844, the two Brier/skill rows, the reliability deciles), and it refuses

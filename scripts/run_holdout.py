@@ -17,10 +17,12 @@ No model selection, no threshold sweep (the registered 0.030 only), no second wi
 ablation, no per-player listing. Those are all decided, and the point of the freeze is that
 there is nothing left to choose when this runs.
 
-**The gate.** Fold 3 is refused unless both hold: `fold3.frozen` is `true` in
-`configs/folds.yaml`, and HEAD is exactly tagged `design-freeze-v1`. The second is what stops
-the holdout from being run on a working tree that merely looks frozen. `allow_unfrozen` is a
-test-only escape hatch and is never used from here.
+**The gate.** Fold 3 is refused unless all three hold: `fold3.frozen` is `true` in
+`configs/folds.yaml`, HEAD is exactly tagged `design-freeze-v1`, and the working tree is
+clean. The tag is what stops the holdout from being run on a working tree that merely looks
+frozen; the clean tree is what makes the tag mean something, since an uncommitted edit to a
+model or a feature is not described by the tag and the run would not be reproducible from it.
+`allow_unfrozen` is a test-only escape hatch and is never used from here.
 
 Usage:
     uv run python scripts/run_holdout.py
@@ -119,17 +121,22 @@ def head_description() -> str:
 
 
 def dirty_paths() -> list[str]:
-    """Modified or untracked paths, or [] if the tree is clean or git is unavailable."""
+    """Modified or untracked paths, or [] if the tree is clean or git is unavailable.
+
+    Git being unavailable cannot be mistaken for a clean tree here: `check_gate` asks for the
+    exact tag first, and that question has no answer without git either.
+    """
     out = _git("status", "--porcelain")
     return [line for line in (out or "").splitlines() if line.strip()]
 
 
 def check_gate(fold: Fold) -> None:
-    """Refuse the holdout unless the fold is frozen *and* HEAD is the freeze tag.
+    """Refuse the holdout unless the fold is frozen, HEAD is the freeze tag, and the tree is clean.
 
-    Both, because either alone is easy to satisfy by accident: a flipped flag in an
-    uncommitted file is not a freeze, and a tag on a commit whose config still says
-    ``frozen: false`` is not one either.
+    All three, because each one alone is easy to satisfy by accident: a flipped flag in an
+    uncommitted file is not a freeze, a tag on a commit whose config still says
+    ``frozen: false`` is not one either, and a tagged commit with edits on top of it is not
+    the thing the tag describes.
     """
     if fold.frozen is not True:
         raise HoldoutRefused(
@@ -145,6 +152,16 @@ def check_gate(fold: Fold) -> None:
             f"{FREEZE_TAG!r}. Create the freeze tag first -- and if the tag exists but HEAD "
             "has moved past it, check the tag out rather than tagging again "
             "(DESIGN_FREEZE.md sections 4 and 5)."
+        )
+    dirty = dirty_paths()
+    if dirty:
+        listing = "\n  ".join(dirty[:20])
+        more = "" if len(dirty) <= 20 else f"\n  ... and {len(dirty) - 20} more"
+        raise HoldoutRefused(
+            f"the working tree has {len(dirty)} uncommitted or untracked path(s), so what "
+            f"would run is not what {FREEZE_TAG} pins. Section 5 requires "
+            "`git status --porcelain` to print nothing before the single look. Commit, stash "
+            f"or remove these first:\n  {listing}{more}"
         )
 
 
@@ -457,18 +474,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "dry run of the print-out rather than a result."
         )
     else:
-        print(f"HOLDOUT RUN. {fold.name}, once, at tag {FREEZE_TAG}.")
-        dirty = dirty_paths()
-        if dirty:
-            # Not a refusal -- the gate is the flag and the tag -- but section 5 wants the
-            # tree clean, and a dirty one means what runs is not what the tag describes.
-            print(
-                f"\nWARNING: {len(dirty)} uncommitted or untracked path(s). "
-                "DESIGN_FREEZE.md section 5 requires a clean tree for the single look, so "
-                "what runs here is not exactly what the tag pins:"
-            )
-            for line in dirty[:10]:
-                print(f"  {line}")
+        print(
+            f"HOLDOUT RUN. {fold.name}, once, at tag {FREEZE_TAG}, on a clean tree."
+        )
 
     digest, rows = snapshot_fingerprint(DATA)
     print(f"\ndata snapshot {DATA}: sha256 {digest}, {rows} rows")

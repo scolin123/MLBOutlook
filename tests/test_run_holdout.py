@@ -72,7 +72,35 @@ def test_the_holdout_is_refused_under_the_wrong_tag(monkeypatch):
 
 def test_the_gate_opens_only_on_the_freeze_tag(monkeypatch):
     monkeypatch.setattr(holdout, "exact_tag", lambda: holdout.FREEZE_TAG)
-    holdout.check_gate(frozen_holdout())  # both conditions met: no refusal
+    monkeypatch.setattr(holdout, "dirty_paths", list)
+    holdout.check_gate(frozen_holdout())  # all three conditions met: no refusal
+
+
+def test_the_holdout_is_refused_on_a_dirty_tree(monkeypatch):
+    """An edit on top of the tagged commit is not what the tag describes."""
+    monkeypatch.setattr(holdout, "exact_tag", lambda: holdout.FREEZE_TAG)
+    monkeypatch.setattr(
+        holdout, "dirty_paths", lambda: [" M src/mlb_outlook/models/ridge.py"]
+    )
+    with pytest.raises(holdout.HoldoutRefused, match="uncommitted or untracked"):
+        holdout.check_gate(frozen_holdout())
+
+
+def test_the_dirty_tree_refusal_names_the_paths(monkeypatch):
+    monkeypatch.setattr(holdout, "exact_tag", lambda: holdout.FREEZE_TAG)
+    monkeypatch.setattr(holdout, "dirty_paths", lambda: [f"?? scratch{i}.py" for i in range(25)])
+    with pytest.raises(holdout.HoldoutRefused) as refused:
+        holdout.check_gate(frozen_holdout())
+    message = str(refused.value)
+    assert "scratch0.py" in message and "and 5 more" in message
+
+
+def test_the_flag_and_the_tag_are_checked_before_the_tree(monkeypatch):
+    """A dirty tree is the last complaint, so the first message names the real blocker."""
+    monkeypatch.setattr(holdout, "exact_tag", lambda: None)
+    monkeypatch.setattr(holdout, "dirty_paths", lambda: [" M x.py"])
+    with pytest.raises(holdout.HoldoutRefused, match="untagged"):
+        holdout.check_gate(frozen_holdout())
 
 
 def test_the_tag_alone_does_not_open_the_gate(monkeypatch):
@@ -106,7 +134,8 @@ def test_main_refuses_the_holdout_without_the_freeze_tag(monkeypatch, capsys):
     """
     monkeypatch.setattr(holdout, "exact_tag", lambda: None)
     assert holdout.main([]) == 1
-    assert "refused" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "refused" in out
 
 
 def test_main_refuses_a_rehearsal_on_the_holdout(capsys):
