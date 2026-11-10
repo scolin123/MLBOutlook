@@ -11,6 +11,10 @@ without anything being chosen afterwards:
 - `coverage_by_group` and its two callers -- interval coverage inside a slice of the
   population (playing time, age), where an aggregate inside 75-85% can hide a slice outside
   it.
+- `per_player_forecasts` -- one row per scored player with both forecasts, the signed gap
+  between them, and which of the two came closer. The MAE comparison is a mean of this table,
+  so this is where a reader checks whether an edge of 0.0023 is a small edge everywhere or a
+  large edge on a handful of players.
 
 All of it reads the feature frames and the season table; none of it fits anything.
 """
@@ -29,6 +33,7 @@ from mlb_outlook.models.intervals import pa_buckets as _pa_buckets
 
 POPULATION_COLUMNS = ["fold", "target_season", "eligible", "bucket", "n", "share"]
 COVERAGE_COLUMNS = ["grouping", "bucket", "range", "n", "coverage", "width"]
+PLAYER_ID_COLUMNS = ["player_id", "name", "target_season", "age_target", "pa_lag1", "y_pa"]
 # Age brackets for the coverage read: under 26, 26-30, 31 and up. The conventional pre-peak /
 # peak / post-peak split, not fitted to anything -- the aging curve in `MarcelBaseline` turns
 # at 29 and these are the brackets a scouting report would use.
@@ -82,6 +87,60 @@ def population_accounting(
         for bucket, n in counts.items()
     ]
     return pd.DataFrame(rows, columns=POPULATION_COLUMNS)
+
+
+def per_player_forecasts(
+    test: pd.DataFrame,
+    model: pd.Series,
+    baseline: pd.Series,
+    *,
+    names: pd.Series | None = None,
+    bounds: pd.DataFrame | None = None,
+    model_name: str = "ridge_rel",
+    baseline_name: str = "marcel",
+) -> pd.DataFrame:
+    """One row per scored player: both forecasts, their difference, and who came closer.
+
+    The headline MAE comparison is the mean of the `advantage` column, which is
+    ``|baseline error| - |model error|`` so that positive means the model was closer. Reading
+    it per player answers something the mean cannot: whether a 0.0023 edge is a small edge on
+    most hitters or a large edge on a few. Rows are sorted by the signed gap between the two
+    forecasts, descending, so the biggest disagreements sit at both ends of the file.
+
+    `names` maps player_id to a display name (the feature frame does not carry one), and
+    `bounds` adds the published interval and whether it covered the outcome.
+    """
+    if not model.index.equals(test.index) or not baseline.index.equals(test.index):
+        raise ValueError("model and baseline forecasts must share the index of the test frame")
+    diff_column = f"{model_name}_minus_{baseline_name}"
+    truth = test["y_woba"].astype(float)
+    out = pd.DataFrame(
+        {
+            "player_id": test["player_id"].to_numpy(),
+            "name": (
+                test["player_id"].map(names) if names is not None else pd.NA
+            ),
+            "target_season": test["target_season"].to_numpy(),
+            "age_target": test["age_target"].to_numpy(),
+            "pa_lag1": test["pa_lag1"].to_numpy(),
+            "y_pa": test["y_pa"].to_numpy(),
+            "y_woba": truth.to_numpy(),
+            model_name: model.astype(float).to_numpy(),
+            baseline_name: baseline.astype(float).to_numpy(),
+            diff_column: (model.astype(float) - baseline.astype(float)).to_numpy(),
+            f"abs_err_{model_name}": (model.astype(float) - truth).abs().to_numpy(),
+            f"abs_err_{baseline_name}": (baseline.astype(float) - truth).abs().to_numpy(),
+        },
+        index=test.index,
+    )
+    out["advantage"] = (
+        out[f"abs_err_{baseline_name}"] - out[f"abs_err_{model_name}"]
+    )
+    if bounds is not None:
+        out["lo"] = bounds["lo"].to_numpy(dtype=float)
+        out["hi"] = bounds["hi"].to_numpy(dtype=float)
+        out["covered"] = (out["y_woba"] >= out["lo"]) & (out["y_woba"] <= out["hi"])
+    return out.sort_values(diff_column, ascending=False, kind="stable").reset_index(drop=True)
 
 
 def bucket_labels(edges: Sequence[float], unit: str) -> list[str]:

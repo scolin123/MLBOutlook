@@ -46,6 +46,7 @@ from mlb_outlook.evaluation.calibration import PRECISION_KS, run_probability_fol
 from mlb_outlook.evaluation.diagnostics import (
     coverage_by_age,
     coverage_by_pa,
+    per_player_forecasts,
     population_accounting,
 )
 from mlb_outlook.evaluation.harness import (
@@ -261,7 +262,8 @@ def run_holdout(
     intervals = ResidualQuantileIntervals().fit(train, train["y_woba"])
     model_err = np.abs(intervals.predict(test).to_numpy(dtype=float) - truth)
     marcel = FACTORIES[BASELINE]().fit(train, train["y_woba"])
-    base_err = np.abs(marcel.predict(test).to_numpy(dtype=float) - truth)
+    base_pred = marcel.predict(test)
+    base_err = np.abs(base_pred.to_numpy(dtype=float) - truth)
     bootstrap = paired_bootstrap_mae_diff(model_err, base_err)
     bounds = intervals.predict_interval(test)
     # Two slices of the same bounds: the PA buckets the intervals are built on, and age
@@ -275,10 +277,27 @@ def run_holdout(
         df, fold, cfg, extended=EXTENDED, thresholds=(THRESHOLD,)
     )
 
+    # The real snapshot carries display names; the synthetic frames the tests use do not.
+    names = (
+        df.drop_duplicates("player_id").set_index("player_id")["name"]
+        if "name" in df.columns
+        else None
+    )
+    players = per_player_forecasts(
+        test,
+        intervals.predict(test),
+        base_pred,
+        names=names,
+        bounds=bounds,
+        model_name=MODEL,
+        baseline_name=BASELINE,
+    )
+
     frames = {
         "point": table,
         "interval_coverage": coverage,
         "population": population_accounting(df, fold, cfg),
+        "players": players,
         "probabilities": scores,
         "reliability": reliability,
         "verdict": verdict_table(table, bootstrap, cfg),
@@ -337,6 +356,7 @@ def print_report(
             print(f"   {flag} {b.range:22s}  {b.n:>4}      {b.coverage:.3f}  {b.width:.4f}")
 
     print_population(frames["population"])
+    print_players(frames["players"])
     print_probabilities(frames["probabilities"], frames["reliability"])
     print_verdict(frames["verdict"])
 
@@ -348,6 +368,33 @@ def print_population(accounting: pd.DataFrame) -> None:
     for row in accounting.itertuples():
         print(f"  {row.bucket:28s} {row.n:>4}   {row.share:6.1%}")
     print("  every forecast, interval and probability below is conditional on the 100+ row.")
+
+
+def print_players(players: pd.DataFrame) -> None:
+    """Summary of the per-player file: is the edge broad or concentrated?
+
+    Deliberately a summary and not a leaderboard. The per-player rows are in
+    `<fold>_players.csv` for the write-up to quote on purpose; printing the ten biggest
+    disagreements here would turn the single look into the per-player browse that
+    DESIGN_FREEZE.md section 5 rules out.
+    """
+    diff = players[f"{MODEL}_minus_{BASELINE}"]
+    advantage = players["advantage"]
+    closer = float((advantage > 0).mean())
+    print(f"\nper player, {MODEL} against {BASELINE} ({len(players)} rows):")
+    print(
+        f"  forecast gap      mean {diff.mean():+.4f}   median {diff.median():+.4f}   "
+        f"sd {diff.std():.4f}   range {diff.min():+.4f} to {diff.max():+.4f}"
+    )
+    print(
+        f"  higher than {BASELINE} on {int((diff > 0).sum())} of {len(players)} players, "
+        f"lower on {int((diff < 0).sum())}"
+    )
+    print(
+        f"  {MODEL} closer on {closer:.1%} of players; mean error advantage "
+        f"{advantage.mean():+.4f} (this is the MAE difference, per player)"
+    )
+    print("  full rows, including the interval and whether it covered: <fold>_players.csv")
 
 
 def print_probabilities(scores: pd.DataFrame, reliability: pd.DataFrame) -> None:

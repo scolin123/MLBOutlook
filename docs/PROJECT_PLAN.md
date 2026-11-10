@@ -277,6 +277,35 @@ CI clear of zero, and 80% coverage inside 75-85% for every approach tried.
   make its in-sample residual quantiles far too optimistic. Residual quantiles have the same
   weakness in milder form (0.628 on that window). Both need the wide window.
 
+#### Per player: `ridge_rel` minus Marcel (`evaluation/diagnostics.py`), fold 2, extended window
+
+The MAE comparison is a mean over 362 players, and a mean of that size hides whether the edge is
+broad or concentrated. `run_holdout.py` writes a row per scored player -- both forecasts, the
+signed gap, each model's absolute error, which came closer, the published interval and whether
+it covered -- to `<fold>_players.csv`, and prints this summary:
+
+| Reading | Fold 2, extended |
+|---|---|
+| forecast gap, `ridge_rel` - Marcel | mean -0.0105, median -0.0095, sd 0.0123 |
+| gap range | -0.0557 to +0.0204 |
+| higher than Marcel / lower | 70 players / 292 players |
+| `ridge_rel` closer to the outcome | **53.0% of players** |
+| mean error advantage | +0.0023 (which is the MAE difference) |
+
+- **The edge is narrow, not broad.** `ridge_rel` is closer than Marcel on 53.0% of players --
+  near a coin flip -- and still wins the mean by 0.0023, so the advantage comes from the size of
+  its wins rather than their frequency. A reader who takes "beats Marcel" to mean "is the better
+  forecast for this hitter" would be wrong about 47% of the time.
+- **It forecasts lower than Marcel almost everywhere**: 292 of 362 players, mean gap -0.0105.
+  That is the aging curve and the mean regression Marcel has and the league-relative ridge does
+  not, and it is the same thing the bias column says from the other side (Marcel +0.0093,
+  `ridge_rel` -0.0013). The two models disagree in one direction by about ten wOBA points as a
+  matter of construction, not case by case.
+- **Nothing is selected on this.** It is a reading of the already-pre-registered comparison, and
+  the per-player rows are in the CSV so the write-up can quote them deliberately; the holdout
+  prints the summary only, because a top-ten disagreement list on fold 3 is the per-player browse
+  `DESIGN_FREEZE.md` section 5 rules out.
+
 #### Coverage by slice (`evaluation/diagnostics.py`), fold 2, extended window
 
 The pre-registered criterion is the aggregate coverage, and the aggregate is 0.815. These are

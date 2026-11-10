@@ -8,11 +8,13 @@ from mlb_outlook.config import load_folds_config
 from mlb_outlook.evaluation.diagnostics import (
     COVERAGE_COLUMNS,
     DEFAULT_AGE_EDGES,
+    PLAYER_ID_COLUMNS,
     POPULATION_COLUMNS,
     bucket_labels,
     coverage_by_age,
     coverage_by_group,
     coverage_by_pa,
+    per_player_forecasts,
     population_accounting,
 )
 from mlb_outlook.evaluation.harness import fold_frames
@@ -96,6 +98,88 @@ def test_both_groupings_cover_the_same_rows(seasons_df):
     assert by_pa["n"].sum() == by_age["n"].sum() == len(test)
     weighted = lambda t: (t["coverage"] * t["n"]).sum() / t["n"].sum()  # noqa: E731
     assert weighted(by_pa) == pytest.approx(weighted(by_age))
+
+
+# ---- per-player forecasts ----
+
+
+def _player_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            "player_id": [11, 22, 33],
+            "target_season": 2025,
+            "age_target": [24, 29, 33],
+            "pa_lag1": [600, 400, 200],
+            "y_pa": [550, 300, 150],
+            "y_woba": [0.330, 0.300, 0.280],
+        }
+    )
+
+
+def test_per_player_forecasts_columns_and_difference():
+    test = _player_frame()
+    model = pd.Series([0.320, 0.310, 0.290], index=test.index)
+    baseline = pd.Series([0.300, 0.320, 0.290], index=test.index)
+    out = per_player_forecasts(test, model, baseline)
+    assert "ridge_rel_minus_marcel" in out.columns
+    # Sorted by the gap, descending: player 11 (+0.020), then 33 (0.000), then 22 (-0.010).
+    assert list(out["player_id"]) == [11, 33, 22]
+    assert list(out["ridge_rel_minus_marcel"]) == pytest.approx([0.020, 0.000, -0.010])
+    assert set(PLAYER_ID_COLUMNS) <= set(out.columns)
+
+
+def test_advantage_is_positive_when_the_model_is_closer():
+    test = _player_frame()
+    model = pd.Series([0.330, 0.310, 0.290], index=test.index)  # exact, 0.010 off, 0.010 off
+    baseline = pd.Series([0.300, 0.300, 0.280], index=test.index)  # 0.030 off, exact, exact
+    out = per_player_forecasts(test, model, baseline).set_index("player_id")
+    assert out.loc[11, "advantage"] == pytest.approx(0.030)  # model exact, baseline 0.030 out
+    assert out.loc[22, "advantage"] == pytest.approx(-0.010)  # baseline exact
+    assert out.loc[33, "advantage"] == pytest.approx(-0.010)
+
+
+def test_the_mean_advantage_is_the_mae_difference():
+    """The per-player file has to reconcile with the headline comparison."""
+    test = _player_frame()
+    model = pd.Series([0.320, 0.310, 0.290], index=test.index)
+    baseline = pd.Series([0.300, 0.320, 0.295], index=test.index)
+    out = per_player_forecasts(test, model, baseline)
+    mae_model = (model - test["y_woba"]).abs().mean()
+    mae_base = (baseline - test["y_woba"]).abs().mean()
+    assert out["advantage"].mean() == pytest.approx(mae_base - mae_model)
+
+
+def test_names_and_bounds_are_optional_extras():
+    test = _player_frame()
+    model = pd.Series([0.320, 0.310, 0.290], index=test.index)
+    baseline = pd.Series([0.300, 0.320, 0.290], index=test.index)
+    bare = per_player_forecasts(test, model, baseline)
+    assert bare["name"].isna().all()
+    assert "covered" not in bare.columns
+
+    names = pd.Series({11: "A Hitter", 22: "B Hitter", 33: "C Hitter"})
+    bounds = pd.DataFrame(
+        {"lo": [0.280, 0.305, 0.250], "hi": [0.360, 0.315, 0.330]}, index=test.index
+    )
+    full = per_player_forecasts(test, model, baseline, names=names, bounds=bounds)
+    assert list(full["name"]) == ["A Hitter", "C Hitter", "B Hitter"]
+    # Player 22's outcome of 0.300 sits below its 0.305 lower bound; the other two are inside.
+    assert list(full["covered"]) == [True, True, False]
+
+
+def test_per_player_forecasts_requires_aligned_forecasts():
+    test = _player_frame()
+    model = pd.Series([0.320, 0.310, 0.290], index=test.index)
+    with pytest.raises(ValueError, match="share the index"):
+        per_player_forecasts(test, model, pd.Series([0.3, 0.3, 0.3], index=[9, 8, 7]))
+
+
+def test_column_names_follow_the_model_names():
+    test = _player_frame()
+    model = pd.Series([0.320, 0.310, 0.290], index=test.index)
+    baseline = pd.Series([0.300, 0.320, 0.290], index=test.index)
+    out = per_player_forecasts(test, model, baseline, model_name="m", baseline_name="b")
+    assert {"m", "b", "m_minus_b", "abs_err_m", "abs_err_b"} <= set(out.columns)
 
 
 # ---- population accounting ----

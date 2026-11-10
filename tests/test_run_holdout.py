@@ -216,6 +216,7 @@ def test_run_holdout_reports_and_writes_every_frame(seasons_df, tmp_path, capsys
         "point",
         "interval_coverage",
         "population",
+        "players",
         "probabilities",
         "reliability",
         "verdict",
@@ -248,6 +249,20 @@ def test_run_holdout_slices_the_coverage_two_ways(seasons_df, tmp_path):
     n_test = int(frames["point"].set_index("model").loc[holdout.MODEL, "n_test"])
     for _, part in coverage.groupby("grouping"):
         assert part["n"].sum() == n_test
+
+
+def test_run_holdout_writes_a_per_player_file(seasons_df, tmp_path):
+    """The per-player rows have to reconcile with the headline MAE comparison."""
+    frames = holdout.run_holdout(seasons_df, SELECTION_FOLD, CFG, out_dir=tmp_path)
+    players = frames["players"]
+    point = frames["point"].set_index("model")
+    assert f"{holdout.MODEL}_minus_{holdout.BASELINE}" in players.columns
+    assert len(players) == int(point.loc[holdout.MODEL, "n_test"])
+    expected = float(point.loc[holdout.BASELINE, "mae"]) - float(point.loc[holdout.MODEL, "mae"])
+    assert players["advantage"].mean() == pytest.approx(expected)
+    assert players["covered"].mean() == pytest.approx(
+        float(point.loc[holdout.INTERVALS, "coverage"])
+    )
 
 
 def test_run_holdout_accounts_for_the_population(seasons_df, tmp_path):
