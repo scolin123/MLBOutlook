@@ -24,6 +24,7 @@ from pathlib import Path
 import pandas as pd
 
 from mlb_outlook.config import FoldsConfig, load_folds_config
+from mlb_outlook.evaluation.diagnostics import population_accounting
 from mlb_outlook.evaluation.harness import fold_frames, paired_bootstrap_mae_diff, run_fold
 from mlb_outlook.models.baselines import LastSeason, MarcelBaseline, Weighted3
 from mlb_outlook.models.intervals import (
@@ -38,6 +39,7 @@ from mlb_outlook.models.ridge import RidgeForecaster
 
 DATA = Path("data/processed/hitter_seasons.parquet")
 OUT = Path("artifacts/fold_results.csv")
+POPULATION_OUT = Path("artifacts/population_accounting.csv")
 # The interval models all carry the same point forecaster, ridge_rel, so their MAE stays
 # comparable; the conformal pair refits it on a subset, which costs them a little.
 FACTORIES = {
@@ -59,6 +61,7 @@ def main() -> None:
     df = pd.read_parquet(DATA)
     cfg = load_folds_config("configs/folds.yaml")
     results = []
+    population = []
     for fold in cfg.folds:
         if fold.frozen is not None:
             print(
@@ -66,6 +69,7 @@ def main() -> None:
                 "scripts/run_holdout.py"
             )
             continue
+        population.append(population_accounting(df, fold, cfg))
         for extended in (False, True):
             label = "extended" if extended else "base"
             results.append(run_fold(df, fold, cfg, FACTORIES, extended=extended))
@@ -90,7 +94,33 @@ def main() -> None:
     print(table.round(4).to_string(index=False))
     print_pa_weighted(table)
     print_interval_coverage(table, cfg)
-    print(f"\nwrote {OUT}")
+
+    accounting = pd.concat(population, ignore_index=True)
+    accounting.to_csv(POPULATION_OUT, index=False)
+    print_population(accounting, table)
+    print(f"\nwrote {OUT} and {POPULATION_OUT}")
+
+
+def print_population(accounting: pd.DataFrame, table: pd.DataFrame) -> None:
+    """Who was eligible, and who turned up: the condition every forecast here sits under."""
+    print()
+    print("population per fold: players eligible by prior-season PA, by target-season PA")
+    # One row per fold: n_test is the same in both windows, only the train side moves.
+    scored = (
+        table.loc[table["model"] == BASELINE]
+        .drop_duplicates("fold")
+        .set_index("fold")["n_test"]
+    )
+    for (fold, target, eligible), part in accounting.groupby(
+        ["fold", "target_season", "eligible"], sort=True
+    ):
+        print(f"  {fold} (target {target}): {eligible} eligible")
+        for row in part.itertuples():
+            print(f"    {row.bucket:28s} {row.n:>4}   {row.share:6.1%}")
+        # The scored bucket is the fold's test frame, so a mismatch is a bug in one of them.
+        floor_row = part.iloc[-1]
+        flag = "" if floor_row.n == int(scored.loc[fold]) else "   MISMATCH with n_test"
+        print(f"    scored rows in the fold: {int(scored.loc[fold])}{flag}")
 
 
 def print_pa_weighted(table: pd.DataFrame) -> None:

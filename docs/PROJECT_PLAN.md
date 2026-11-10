@@ -186,6 +186,32 @@ Selected configuration: `ridge_rel` on the extended window. Against Marcel on fo
 bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. Fold 3 has not been run
 and the design is not frozen.
 
+### Population accounting (`evaluation/diagnostics.py`), both folds
+
+Every forecast, interval and probability in this project is conditional on the player taking
+100 plate appearances in the target season. That condition was stated when the probability
+definitions were registered; this is how big it is. Eligible means what `build_features` means
+by it -- at least 100 PA in the season before the target -- and the three buckets are what
+those players did next (`scripts/run_folds.py`, writes `artifacts/population_accounting.csv`).
+
+| Fold (target) | Eligible | 0 PA | 1-99 PA | 100+ PA (scored) |
+|---|---|---|---|---|
+| fold 1 (2024) | 461 | 50 (10.8%) | 53 (11.5%) | **358 (77.7%)** |
+| fold 2 (2025) | 455 | 38 (8.4%) | 55 (12.1%) | **362 (79.6%)** |
+
+- **About a fifth of the eligible population is not scored at all** -- 22.3% on fold 1, 20.4% on
+  fold 2 -- and the scored count reconciles exactly with the fold's test row count, which is the
+  check the script prints.
+- **This is the honest reading of every probability here.** P(breakout) is not the chance a
+  hitter breaks out; it is the chance he breaks out *given* he takes 100 PA. The players who
+  drop out are disproportionately the ones whose forecast was worst, so the real-world
+  distribution of outcomes has a tail this population cannot see. A survival model is a v2
+  item, not something to bolt on after the freeze.
+- **The attrition is also why the interval criterion is evaluated where it is.** Coverage is
+  measured on players who played; a hitter who got hurt has no wOBA to be covered.
+- Fold 3's accounting reads 2026 playing time, so it is run only from `run_holdout.py` and only
+  at the single look. `run_folds.py` skips the holdout fold entirely.
+
 ### RMSE and PA-weighted error (`evaluation/harness.py`), both folds
 
 `run_fold` reports MAE, RMSE and bias twice: once per row, and once weighted by the target
