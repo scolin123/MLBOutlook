@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mlb_outlook.config import load_folds_config
+from mlb_outlook.config import Fold, load_folds_config
 from mlb_outlook.evaluation.calibration import (
     PRECISION_KS,
     RELIABILITY_COLUMNS,
@@ -23,7 +23,9 @@ from mlb_outlook.models.probabilities import LABELS, SENSITIVITY_THRESHOLDS, THR
 
 CFG = load_folds_config("configs/folds.yaml")
 SELECTION_FOLD = next(f for f in CFG.folds if f.name == "fold2")
-HOLDOUT = next(f for f in CFG.folds if f.frozen is False)
+# An unfrozen holdout, built here rather than read out of folds.yaml: the freeze commit
+# flips fold3 to `frozen: true`, and the guard still has to be tested after that.
+HOLDOUT = Fold(name="holdout", train_targets=[2023, 2024, 2025], test_target=2026, frozen=False)
 
 
 # ---- Brier and base rates ----

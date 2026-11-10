@@ -1,8 +1,11 @@
-"""Run the unfrozen-safe folds (fold1, fold2) on real data and print the results table.
+"""Run the selection folds (fold1, fold2) on real data and print the results table.
 
 Each fold runs twice: the ``base`` training window from ``folds.yaml`` and the ``extended``
-one that adds the pre-2023 target seasons. The final holdout (any fold with
-``frozen: false``) is skipped, never run.
+one that adds the pre-2023 target seasons. The final holdout is skipped, never run: any fold
+carrying a ``frozen`` key at all is one, whichever way the flag is set. Reading the flag
+rather than its value is deliberate -- after the freeze commit flips fold3 to
+``frozen: true`` the `run_fold` guard stops refusing it, and the holdout still goes through
+`scripts/run_holdout.py` and nothing else (DESIGN_FREEZE.md section 4).
 
 Point models report MAE and bias. Interval models report those plus the coverage and mean
 width of their 80% intervals, checked against ``success_criteria`` in ``folds.yaml``.
@@ -55,8 +58,11 @@ def main() -> None:
     cfg = load_folds_config("configs/folds.yaml")
     results = []
     for fold in cfg.folds:
-        if fold.frozen is False:
-            print(f"skipping {fold.name}: final holdout, not frozen")
+        if fold.frozen is not None:
+            print(
+                f"skipping {fold.name}: final holdout, runs only through "
+                "scripts/run_holdout.py"
+            )
             continue
         for extended in (False, True):
             label = "extended" if extended else "base"

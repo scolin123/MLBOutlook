@@ -103,13 +103,28 @@ this file pins. The items stay listed below as the questions they answer.
       `probability_reliability.csv` regenerated from that commit, and the numbers in the README
       and `PROJECT_PLAN.md` matching them.
 - [ ] Data snapshot SHA-256 and row count recorded in the freeze commit message.
-- [ ] `scripts/run_holdout.py` written, reviewed, and tested on fold 2 before the tag -- not
+- [x] `scripts/run_holdout.py` written, reviewed, and tested on fold 2 before the tag -- not
       written after the flag is flipped. It must be the single entry point for the holdout, and
       it must: run fold 3 once on the extended window; report `ridge_rel` MAE and bias against
       all three baselines; run the paired bootstrap against Marcel; report `resid_q_pa` coverage,
       mean width and per-bucket coverage; report breakout and regression Brier, skill against the
       training base rate, and the reliability deciles; print the pass/fail verdict from section 6;
       write `artifacts/fold3_*.csv`. No model selection, no threshold sweep, no second window.
+
+      Done, with precision@10 and @25 added to the probability block. Its gate refuses fold 3
+      unless `fold3.frozen` is `true` **and** HEAD is tagged exactly `design-freeze-v1`, so a
+      flipped flag in an uncommitted file is not enough. `--rehearse fold2` is the test-only
+      path it was exercised on: it reproduces every published fold 2 number (MAE 0.0263, bias
+      -0.0013, bootstrap -0.0023 with CI -0.0036 to -0.0008, coverage 0.815, per-bucket
+      0.800 / 0.798 / 0.844, the two Brier/skill rows, the reliability deciles), and it refuses
+      any fold carrying a `frozen` key so it cannot be used to reach the holdout.
+
+      Two things the flip would otherwise have broken, fixed in the same commit and rehearsed
+      by flipping the flag locally and running `pytest`: `scripts/run_folds.py` skipped the
+      holdout on `frozen is False`, which means it would have *run* fold 3 the moment the flag
+      became `true` -- it now skips any fold carrying the key at all; and four tests read the
+      unfrozen holdout out of `folds.yaml`, so they would have failed or stopped testing their
+      guard after the flip -- they now build an unfrozen fold of their own.
 - [ ] `configs/folds.yaml`: `fold3.frozen` flipped `false` -> `true`, in the freeze commit, with
       nothing else in that file changed. This is what opens the guard in `run_fold`,
       `run_ablations` and `run_probability_fold`; `allow_unfrozen=True` stays a test-only escape

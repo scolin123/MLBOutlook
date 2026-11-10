@@ -109,8 +109,14 @@ def test_frozen_none_or_true_is_not_guarded(seasons_df):
 
 
 def test_run_all_blocks_unfrozen_holdout(seasons_df):
+    # The holdout is forced unfrozen here rather than read as `folds.yaml` leaves it: the
+    # freeze commit flips fold3 to `frozen: true`, and this guard still has to be tested
+    # after that. `run_all` runs every fold it is given, so the guard is the only thing
+    # standing between it and a holdout.
+    folds = [f.model_copy(update={"frozen": False}) if f.frozen is not None else f
+             for f in CFG.folds]
     with pytest.raises(FoldNotFrozenError):
-        run_all(seasons_df, CFG, {"last": LastSeason})
+        run_all(seasons_df, CFG.model_copy(update={"folds": folds}), {"last": LastSeason})
 
 
 def test_bootstrap_clear_winner():
