@@ -67,6 +67,12 @@ number. Fold 2 is the selection fold; fold 1 is a sanity check only.
   league-level lag columns are near-constant inside a fold, which gives them a large standardised
   coefficient that extrapolates badly; it is kept as the comparison point for the relative
   parameterisation.
+- **PA-weighted, the edge over Marcel narrows to 0.0008** (0.0240 against 0.0248), from 0.0023
+  unweighted. Every model forecasts regulars better than part-timers, Marcel most of all, so
+  most of `ridge_rel`'s fold 2 edge sits in hitters under 300 PA. Fold 1 does not show the same
+  squeeze (0.0248 against 0.0275). `run_folds.py` reports MAE, RMSE and bias both ways for every
+  model; the pre-registered criterion is the unweighted MAE and stays that, with the weighted
+  reading reported beside it. RMSE: 0.0335 against Marcel's 0.0368.
 - Fold 3 has not been run, and the design is not frozen.
 
 80% prediction intervals (`src/mlb_outlook/models/intervals.py`), coverage and mean width on

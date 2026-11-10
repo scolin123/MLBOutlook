@@ -1,4 +1,4 @@
-"""Run the selection folds (fold1, fold2) on real data and print the results table.
+"""Run the selection folds (fold1, fold2) on real data and print the results tables.
 
 Each fold runs twice: the ``base`` training window from ``folds.yaml`` and the ``extended``
 one that adds the pre-2023 target seasons. The final holdout is skipped, never run: any fold
@@ -7,8 +7,10 @@ rather than its value is deliberate -- after the freeze commit flips fold3 to
 ``frozen: true`` the `run_fold` guard stops refusing it, and the holdout still goes through
 `scripts/run_holdout.py` and nothing else (DESIGN_FREEZE.md section 4).
 
-Point models report MAE and bias. Interval models report those plus the coverage and mean
-width of their 80% intervals, checked against ``success_criteria`` in ``folds.yaml``.
+Point models report MAE, RMSE and bias, each one both unweighted and weighted by the target
+season's plate appearances -- one row one vote against where the plate appearances actually
+went. Interval models report those plus the coverage and mean width of their 80% intervals,
+checked against ``success_criteria`` in ``folds.yaml``.
 
 Usage:
     uv run python scripts/run_folds.py
@@ -86,8 +88,22 @@ def main() -> None:
     table.to_csv(OUT, index=False)
     print()
     print(table.round(4).to_string(index=False))
+    print_pa_weighted(table)
     print_interval_coverage(table, cfg)
     print(f"\nwrote {OUT}")
+
+
+def print_pa_weighted(table: pd.DataFrame) -> None:
+    """The weighted trio beside the unweighted one, per fold and window."""
+    print()
+    print("unweighted / PA-weighted by target-season PA:")
+    print("  fold  config    model            MAE              RMSE             bias")
+    for row in table.itertuples():
+        print(
+            f"  {row.fold} {row.config:9s} {row.model:12s} "
+            f"{row.mae:.4f} / {row.mae_pa:.4f}  {row.rmse:.4f} / {row.rmse_pa:.4f}  "
+            f"{row.bias:+.4f} / {row.bias_pa:+.4f}"
+        )
 
 
 def print_interval_coverage(table: pd.DataFrame, cfg: FoldsConfig) -> None:

@@ -7,7 +7,9 @@ import pytest
 from mlb_outlook.config import Fold, load_folds_config
 from mlb_outlook.evaluation.harness import (
     RESULT_COLUMNS,
+    WEIGHT_COLUMN,
     FoldNotFrozenError,
+    error_metrics,
     fold_frames,
     paired_bootstrap_mae_diff,
     run_all,
@@ -144,6 +146,80 @@ def test_bootstrap_seed_reproducible_and_validates():
         paired_bootstrap_mae_diff(a, b[:10])
 
 
+# ---- error metrics, unweighted and PA-weighted ----
+
+
+def test_error_metrics_by_hand():
+    err = np.array([0.02, -0.04, 0.06])
+    out = error_metrics(err)
+    assert out["mae"] == pytest.approx(0.04)
+    assert out["bias"] == pytest.approx(0.04 / 3)
+    assert out["rmse"] == pytest.approx(np.sqrt((0.0004 + 0.0016 + 0.0036) / 3))
+    assert "mae_pa" not in out
+
+
+def test_pa_weighting_follows_the_plate_appearances():
+    err = np.array([0.02, -0.04])
+    out = error_metrics(err, [100.0, 300.0])
+    assert out["mae"] == pytest.approx(0.03)  # one row one vote
+    assert out["mae_pa"] == pytest.approx((100 * 0.02 + 300 * 0.04) / 400)
+    assert out["bias_pa"] == pytest.approx((100 * 0.02 - 300 * 0.04) / 400)
+    assert out["rmse_pa"] == pytest.approx(
+        np.sqrt((100 * 0.0004 + 300 * 0.0016) / 400)
+    )
+
+
+def test_equal_weights_reproduce_the_unweighted_metrics():
+    err = np.array([0.01, -0.03, 0.05, -0.02])
+    out = error_metrics(err, np.full(4, 500.0))
+    for metric in ("mae", "rmse", "bias"):
+        assert out[f"{metric}_pa"] == pytest.approx(out[metric])
+
+
+def test_rmse_is_at_least_mae_and_bias_keeps_its_sign():
+    err = np.array([-0.05, -0.01, 0.02])
+    out = error_metrics(err, [600.0, 200.0, 150.0])
+    assert out["rmse"] >= out["mae"]
+    assert out["rmse_pa"] >= out["mae_pa"]
+    assert out["bias_pa"] < out["bias"] < 0  # the big miss is the big-PA row
+
+
+def test_error_metrics_validates_its_inputs():
+    with pytest.raises(ValueError, match="non-empty 1-D"):
+        error_metrics([])
+    with pytest.raises(ValueError, match="align"):
+        error_metrics([0.01, 0.02], [100.0])
+    with pytest.raises(ValueError, match="non-negative"):
+        error_metrics([0.01, 0.02], [100.0, -1.0])
+    with pytest.raises(ValueError, match="non-negative"):
+        error_metrics([0.01, 0.02], [100.0, np.nan])
+    with pytest.raises(ValueError, match="sum to zero"):
+        error_metrics([0.01, 0.02], [0.0, 0.0])
+
+
+def test_run_fold_reports_both_readings_for_every_model(seasons_df):
+    fold = next(f for f in CFG.folds if f.name == "fold2")
+    out = run_fold(seasons_df, fold, CFG, {"last": LastSeason}, extended=True)
+    row = out.iloc[0]
+    assert set(RESULT_COLUMNS) >= {"mae", "rmse", "bias", "mae_pa", "rmse_pa", "bias_pa"}
+    for column in ("mae", "rmse", "mae_pa", "rmse_pa"):
+        assert row[column] > 0
+    # The weight column is a target-season outcome, so it stays on the scoring side.
+    assert WEIGHT_COLUMN.startswith("y_")
+
+
+def test_pa_weighted_metrics_match_a_hand_weighting(seasons_df):
+    """The harness must be weighting by the test frame's y_pa and nothing else."""
+    fold = next(f for f in CFG.folds if f.name == "fold2")
+    train, test = fold_frames(seasons_df, fold, CFG, extended=True)
+    model = LastSeason().fit(train, train["y_woba"])
+    err = model.predict(test).to_numpy(dtype=float) - test["y_woba"].to_numpy(dtype=float)
+    weights = test[WEIGHT_COLUMN].to_numpy(dtype=float)
+    out = run_fold(seasons_df, fold, CFG, {"last": LastSeason}, extended=True).iloc[0]
+    assert out["mae_pa"] == pytest.approx(np.average(np.abs(err), weights=weights))
+    assert out["bias_pa"] == pytest.approx(np.average(err, weights=weights))
+
+
 # ---- extended training window (configs/folds.yaml: extended.extra_train_targets) ----
 
 # The synthetic fixture starts in 2018, so extended targets before 2019 have no prior
@@ -189,6 +265,7 @@ def test_extended_scores_only_differ_for_models_that_train(seasons_df, fold):
     assert ext["n_test"] == base["n_test"]
     # LastSeason ignores the training frame, so a wider window cannot move its score.
     assert ext["mae"] == base["mae"] and ext["bias"] == base["bias"]
+    assert ext["mae_pa"] == base["mae_pa"] and ext["rmse_pa"] == base["rmse_pa"]
 
 
 def test_result_columns(seasons_df):

@@ -186,6 +186,49 @@ Selected configuration: `ridge_rel` on the extended window. Against Marcel on fo
 bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. Fold 3 has not been run
 and the design is not frozen.
 
+### RMSE and PA-weighted error (`evaluation/harness.py`), both folds
+
+`run_fold` reports MAE, RMSE and bias twice: once per row, and once weighted by the target
+season's plate appearances (`y_pa`), which is the outcome's own sample size. One row one vote
+is how the pre-registered criterion is stated and is what every table above uses. The weighted
+reading answers a different question -- how wrong the forecast is where the plate appearances
+actually went -- and on this population the two diverge, because roughly a third of the test
+rows are hitters under 300 PA.
+
+Fold 2, extended window, 362 test rows, unweighted / PA-weighted:
+
+| Model | MAE | RMSE | bias |
+|---|---|---|---|
+| last season | 0.0325 / 0.0298 | 0.0427 / 0.0385 | +0.0015 / -0.0019 |
+| 3-year weighted | 0.0306 / 0.0273 | 0.0401 / 0.0358 | +0.0053 / +0.0004 |
+| Marcel | 0.0285 / 0.0248 | 0.0368 / 0.0320 | +0.0093 / +0.0034 |
+| ridge, absolute features | 0.0289 / 0.0283 | 0.0364 / 0.0355 | -0.0141 / -0.0190 |
+| **ridge_rel** | **0.0263 / 0.0240** | **0.0335 / 0.0306** | -0.0013 / -0.0062 |
+
+- **The edge over Marcel is mostly in part-time hitters, and this is the main thing the
+  weighting shows.** Unweighted, `ridge_rel` beats Marcel by 0.0023 on fold 2. PA-weighted, by
+  0.0008. Both models are more accurate on regulars -- a 650-PA wOBA is a less noisy target
+  than a 150-PA one, so everything improves under weighting -- but Marcel improves more
+  (0.0285 -> 0.0248) than `ridge_rel` does (0.0263 -> 0.0240). Read plainly: most of what the
+  Statcast features and the league-relative target buy is on hitters a club has least reason to
+  care about. Fold 1 does not show the same squeeze (0.0248 against Marcel's 0.0275, an edge of
+  0.0027 that survives weighting), so one fold of this is not a pattern.
+- **The pre-registered criterion does not move.** Criteria 1 and 2 are the unweighted MAE and
+  its bootstrap, fixed before fold 2 was run, and they stay that. This table is reported beside
+  them, not instead of them, and no PA-weighted criterion is being added now -- picking the
+  weighting after seeing which way it cuts is exactly what the freeze exists to prevent. It is
+  on the v2 list as a criterion to pre-register properly.
+- **`ridge_rel` under-predicts regulars.** Its PA-weighted bias is -0.0062 against -0.0013
+  unweighted, so the shortfall is concentrated in the high-PA rows; Marcel over-predicts
+  everyone (+0.0093) and less so on regulars (+0.0034). The two errors point in opposite
+  directions, which is consistent with the aging-curve-free league-relative fit pulling
+  established hitters toward the league.
+- **RMSE ranks the models the same way MAE does**, with one exception worth noting: the
+  absolute-feature ridge is nearly level with Marcel on RMSE (0.0364 against 0.0368) while
+  clearly worse on MAE (0.0289 against 0.0285). Its errors are shaped differently -- fewer
+  mid-sized misses, a worse level -- which is the same `lg_woba_lag` extrapolation problem
+  recorded above.
+
 ### 80% intervals (`models/intervals.py`), fold 2, extended window
 
 | Approach | Coverage | Mean width | Point MAE |

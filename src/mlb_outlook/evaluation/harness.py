@@ -43,10 +43,51 @@ RESULT_COLUMNS = [
     "n_train",
     "n_test",
     "mae",
+    "rmse",
     "bias",
+    "mae_pa",
+    "rmse_pa",
+    "bias_pa",
     "coverage",
     "width",
 ]
+# The weight column for the PA-weighted metrics: the target season's plate appearances, the
+# outcome's own sample size. It is a `y_` column, so it is on the scoring side only.
+WEIGHT_COLUMN = "y_pa"
+
+
+def error_metrics(errors, weights=None) -> dict[str, float]:
+    """MAE, RMSE and bias of signed errors, unweighted and -- with `weights` -- weighted too.
+
+    Two readings of the same errors, and they answer different questions. Unweighted is one
+    row one vote, which is how the pre-registered criterion is stated and how a forecast for
+    an unknown player counts the same as one for a regular. PA-weighted is "how wrong is the
+    forecast where the plate appearances actually went", so a 650-PA regular outweighs a
+    110-PA bench bat six to one. A model can win one and lose the other: the population here
+    is half part-time hitters, whose wOBA is noisier and whose forecasts are worth less to a
+    club, so the weighted number is the one a front office would read.
+    """
+    err = np.asarray(errors, dtype=float)
+    if err.ndim != 1 or err.size == 0:
+        raise ValueError("errors must be a non-empty 1-D array")
+    out = {
+        "mae": float(np.mean(np.abs(err))),
+        "rmse": float(np.sqrt(np.mean(err**2))),
+        "bias": float(np.mean(err)),
+    }
+    if weights is None:
+        return out
+    w = np.asarray(weights, dtype=float)
+    if w.shape != err.shape:
+        raise ValueError(f"weights must align with errors: {w.shape} vs {err.shape}")
+    if np.isnan(w).any() or (w < 0).any():
+        raise ValueError("weights must be non-negative and present for every row")
+    if w.sum() <= 0:
+        raise ValueError("weights must not sum to zero")
+    out["mae_pa"] = float(np.average(np.abs(err), weights=w))
+    out["rmse_pa"] = float(np.sqrt(np.average(err**2, weights=w)))
+    out["bias_pa"] = float(np.average(err, weights=w))
+    return out
 
 
 def interval_metrics(lo, hi, y) -> tuple[float, float]:
@@ -73,8 +114,10 @@ def run_fold(
 ) -> pd.DataFrame:
     """Fit a fresh model per factory on the fold's train frame and score the test frame.
 
-    A model that also exposes ``predict_interval`` gets its interval coverage and mean
-    width scored on the same test rows; the other models leave those columns NaN.
+    Every model reports MAE, RMSE and bias both unweighted and weighted by the target
+    season's plate appearances (see `error_metrics`). A model that also exposes
+    ``predict_interval`` gets its interval coverage and mean width scored on the same test
+    rows; the other models leave those columns NaN.
     """
     if fold.frozen is False and not allow_unfrozen:
         raise FoldNotFrozenError(
@@ -98,8 +141,7 @@ def run_fold(
                 "fold": fold.name,
                 "n_train": len(train),
                 "n_test": len(test),
-                "mae": float(np.mean(np.abs(err))),
-                "bias": float(np.mean(err)),
+                **error_metrics(err, test[WEIGHT_COLUMN]),
                 "coverage": coverage,
                 "width": width,
             }
