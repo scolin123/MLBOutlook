@@ -108,6 +108,38 @@ Every ablation stays inside the 75-85% coverage range. Park factors are deferred
 the park ablation is not part of v1. See
 [PROJECT_PLAN.md](docs/PROJECT_PLAN.md) for the per-group reading.
 
+Breakout and regression probabilities, read off the same predictive distribution
+(`src/mlb_outlook/models/probabilities.py`, scored by `evaluation/calibration.py` via
+`scripts/run_probabilities.py`). Breakout is a target season at least 0.030 wOBA above the
+weighted 3-year baseline, regression at least 0.030 below; both definitions were committed
+before anything was computed. Fold 2 only, extended window, the same 362 test rows as above.
+The baseline forecast hands every player the training window's base rate.
+
+| Label | base rate train / test | mean predicted | Brier | base-rate Brier | skill | model - base rate (95% CI) |
+|---|---|---|---|---|---|---|
+| **breakout** | 0.154 / 0.171 | 0.171 | **0.1061** | 0.1422 | **+0.254** | -0.0361 (**-0.0501 to -0.0226**) |
+| **regression** | 0.279 / 0.257 | 0.273 | **0.1679** | 0.1914 | **+0.123** | -0.0235 (**-0.0373 to -0.0091**) |
+
+Both beat their base rate with a paired bootstrap CI clear of zero. The 10th and 90th
+percentiles of this distribution are exactly the published 80% interval, so the
+probabilities cannot contradict the forecast -- there is no separate classifier.
+
+- Regression is the commoner label (0.257 vs 0.171) because the registered baseline carries
+  no aging curve and no regression to the mean, so a hitter who got lucky or is past his peak
+  sits below his own three-year line more often than above it. Each label is therefore scored
+  against its own base rate.
+- Mean predicted P(breakout) matches the observed rate to three decimals; regression runs 1.6
+  points high. Per-decile reliability is another matter: the breakout table under-observes in
+  deciles 1-7 and over-observes in the top two (0.649 observed against 0.496 predicted), so
+  the surest calls break out more often than stated. Count-weighted gaps are 0.057 and 0.039.
+  Nothing was fitted to correct this -- a calibration map tuned on fold 2 would need its own
+  holdout. It goes into the freeze as a reported property.
+- Skill stays positive at thresholds of 0.020 and 0.040 for both labels. The registered 0.030
+  does not move because a neighbour scores better.
+
+Per-decile tables and the per-threshold reading are in
+[PROJECT_PLAN.md](docs/PROJECT_PLAN.md); fold 3 has not been run and the design is not frozen.
+
 ## Data
 - Statcast via `pybaseball`, MLB Stats API and the Chadwick register for player IDs. Seasons 2015-2026 are pulled for features and lag history.
 - FanGraphs-style figures are reference only; licensing is checked before any scraping, and metrics are self-computed where possible.

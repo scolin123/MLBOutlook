@@ -244,6 +244,70 @@ unchanged. Fold 3 was not run. All six models keep 80% coverage inside the pre-r
   league-level columns or the uncentred target -- not the absolute rates -- as what breaks
   the absolute ridge on the wide window. Worth resolving before the freeze.
 
+### Breakout / regression probability results (`evaluation/calibration.py`), fold 2
+
+`scripts/run_probabilities.py`, extended window, writing `artifacts/probability_results.csv`
+and `artifacts/probability_reliability.csv`. Definitions exactly as registered above, scored
+on the same 362 test rows as the MAE and interval tables. The base-rate baseline hands every
+player the *training* window's base rate, the only one available at the forecast date.
+
+| Label | base rate train / test | mean predicted | Brier | base-rate Brier | skill | model - base rate (95% CI) | reliability gap |
+|---|---|---|---|---|---|---|---|
+| **breakout** | 0.154 / 0.171 | 0.171 | **0.1061** | 0.1422 | **+0.254** | -0.0361 (**-0.0501 to -0.0226**) | 0.057 |
+| **regression** | 0.279 / 0.257 | 0.273 | **0.1679** | 0.1914 | **+0.123** | -0.0235 (**-0.0373 to -0.0091**) | 0.039 |
+
+Both labels beat their base rate with a paired bootstrap CI clear of zero, so the forecast
+distribution carries information about the direction of a move and not only its size.
+
+Reliability, equal-count deciles of predicted probability (36-37 rows each):
+
+| Decile | breakout predicted | breakout observed | regression predicted | regression observed |
+|---|---|---|---|---|
+| 1 | 0.019 | 0.000 | 0.056 | 0.054 |
+| 2 | 0.051 | 0.000 | 0.107 | 0.111 |
+| 3 | 0.074 | 0.056 | 0.142 | 0.250 |
+| 4 | 0.097 | 0.111 | 0.179 | 0.108 |
+| 5 | 0.116 | 0.079 | 0.224 | 0.171 |
+| 6 | 0.150 | 0.029 | 0.262 | 0.243 |
+| 7 | 0.186 | 0.139 | 0.312 | 0.257 |
+| 8 | 0.228 | 0.333 | 0.375 | 0.361 |
+| 9 | 0.289 | 0.306 | 0.442 | 0.444 |
+| 10 | 0.496 | 0.649 | 0.626 | 0.568 |
+
+- **Regression is the commoner label** (0.257 against 0.171 on the test rows) and that is
+  the baseline's doing, not the model's. `Weighted3` carries no aging curve and no regression
+  to the mean, so a hitter who got lucky, or who is past his peak, sits below his own
+  three-year line more often than above it. The asymmetry is a property of the registered
+  definition and is exactly why each label is scored against its own base rate rather than
+  against 0.5 or against the other label.
+- **The distribution is centred about right in aggregate.** Mean predicted P(breakout) is
+  0.171 against an observed 0.171; regression is 1.6 points high (0.273 against 0.257). Per
+  PA bucket the aggregate gap stays inside 0.04 either way.
+- **Breakout separates twice as well as regression** (skill +0.254 against +0.123). Part of
+  that is the easier baseline -- a 0.154 base rate leaves more room above it than a 0.279 one
+  -- and part is that the model's upside cases are the ones where contact quality and wOBA
+  disagree, which is the signal the Statcast features add.
+- **The breakout table is not flat, and the shape is under-confidence at the top.** Deciles
+  1-7 under-observe, most sharply decile 6 (0.029 observed against 0.150 predicted), and the
+  top two over-observe (0.333 against 0.228, then 0.649 against 0.496). The players it is
+  surest about break out about 15 points more often than it says. At 36-37 rows a decile
+  carries roughly +/-0.08 of sampling noise, so no single row is settled; the count-weighted
+  gap is 0.057 for breakout and 0.039 for regression, whose worst row is decile 3 (0.250
+  against 0.142).
+- **Nothing was fitted to fix that.** A post-hoc calibration map on fold 2 would need its own
+  holdout to be worth anything, and fold 3 is not available for it. The under-confidence goes
+  into the freeze as a reported property; if fold 3 reproduces it, that is the v2 lever.
+- **Granularity is not the limit.** The PA buckets hold 965 / 797 / 947 training residuals,
+  so a probability resolves to about 0.001.
+- **Threshold sensitivity.** Skill stays positive for both labels at every threshold:
+  breakout +0.225 / **+0.254** / +0.200 and regression +0.147 / **+0.123** / +0.130 at
+  0.020 / **0.030** / 0.040. The registered 0.030 is the best of the three for breakout and
+  the worst for regression, which at 362 rows is noise in both directions and not a reason to
+  move it.
+- These probabilities are descriptive, as registered: the pre-registered criteria are still
+  the MAE and coverage pair in `folds.yaml`, both already met on fold 2. Nothing in the model,
+  its features, or its alpha moved for this work, and fold 3 was not run.
+
 ## 7. Production forecast (2027)
 After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the repo and publish before the 2027 season. Score them after 2027 as a prospective test.
 
