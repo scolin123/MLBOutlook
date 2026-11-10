@@ -5,7 +5,8 @@
 MLB hitter forecasting for baseball operations: next-season projections with calibrated uncertainty, breakout/regression probabilities derived from the forecast distribution, historical comparables, and a buy-low / sell-high scouting dashboard.
 
 **Status:** v1 in development. Scope is MLB hitters only. Folds 1-2 run on real 2015-2026
-Savant data; fold 3 (2026) stays untouched until the design freeze. See
+Savant data; fold 3 (2026) stays untouched until the design freeze, which has not happened --
+the checklist and the pass/fail rules are in [DESIGN_FREEZE.md](docs/DESIGN_FREEZE.md). See
 [Results so far](#results-so-far).
 
 ## Questions v1 answers
@@ -167,16 +168,16 @@ pytest
 app/            Streamlit dashboard
 configs/        folds.yaml, data and model configs
 data/           raw/ and processed/ (git-ignored)
-docs/           PROJECT_PLAN.md (scope, evaluation, timeline), PLAN.md (overnight phases), REPORT_TEMPLATE.md
+docs/           PROJECT_PLAN.md (scope, evaluation, timeline), DESIGN_FREEZE.md (what the tag pins, how fold 3 is run, pass/fail), PLAN.md (overnight phases), REPORT_TEMPLATE.md
 notebooks/      data audit and feature analysis
 reports/        overnight run reports
-scripts/        night_run.sh (overnight driver), verify_phase.sh, check_bootstrap.sh
+scripts/        run_folds.py, run_ablations.py, run_probabilities.py, night_run.sh (overnight driver), verify_phase.sh, check_bootstrap.sh
 sql/            versioned schema
 src/mlb_outlook/  ingestion, validation, features, context, models, evaluation, reporting
 tests/
 ```
 
-Project scope, models, and evaluation design: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md). Phased plan for unattended overnight runs: [docs/PLAN.md](docs/PLAN.md), driven by `scripts/night_run.sh`.
+Project scope, models, and evaluation design: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md). What the design freeze pins and how the 2026 holdout gets its one run: [docs/DESIGN_FREEZE.md](docs/DESIGN_FREEZE.md). Phased plan for unattended overnight runs: [docs/PLAN.md](docs/PLAN.md), driven by `scripts/night_run.sh`.
 
 ## Roadmap
 Weeks 1-2: data audit, MySQL schema, ID mapping, as-of feature builder, leakage test, Marcel baseline. Weeks 3-5: fold harness, ridge forecaster, intervals, derived breakout probabilities, ablations, design freeze. Weeks 6-7: comps, undervalued ranking, dashboard. Week 8: run fold 3 once, write-up, model card. Week 9: 2027 production forecasts and deploy. Target completion around Jan 1, 2027, with February as buffer.

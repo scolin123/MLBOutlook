@@ -62,7 +62,7 @@ Expanding-window folds, model re-initialized from scratch each fold ("clean memo
 | Production | all through 2026 | 2027 | frozen, timestamped forecasts |
 
 Notes:
-- Folds 1-2 are for debugging and model selection. Fold 3 is run once, after freezing code and config (git tag). Do not tune after seeing it.
+- Folds 1-2 are for debugging and model selection. Fold 3 is run once, after freezing code and config (git tag). Do not tune after seeing it. The inventory of what the tag pins, the pre-freeze checklist, the run procedure and the pass/fail rules live in [DESIGN_FREEZE.md](DESIGN_FREEZE.md); the freeze has not happened.
 - Training on one season is thin. Recommendation: allow earlier seasons (2015-2022) as additional training data in an alternate "extended" configuration and compare against the 2023-only version. Report both.
 - Hyperparameters are tuned by chronological CV inside each training window only.
 - Metrics: MAE/RMSE vs baselines, calibration of intervals/probabilities, Brier/log loss for breakout probabilities, precision at top 10/25 with bootstrap CIs.
@@ -309,7 +309,7 @@ Reliability, equal-count deciles of predicted probability (36-37 rows each):
   its features, or its alpha moved for this work, and fold 3 was not run.
 
 ## 7. Production forecast (2027)
-After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the repo and publish before the 2027 season. Score them after 2027 as a prospective test.
+After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the repo and publish before the 2027 season. Score them after 2027 as a prospective test. The production run uses the frozen configuration unchanged and needs no new tag ([DESIGN_FREEZE.md](DESIGN_FREEZE.md) section 7).
 
 ## 8. Timeline (~9 weeks + Feb buffer)
 - W1 (Oct 27): repo, uv/ruff/pre-commit, MySQL schema (docker compose), ID mapping, ingest 2015-2026, data audit.
