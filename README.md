@@ -198,6 +198,19 @@ Out of scope for v1 (planned for v2): park factors, pitchers, minor-league proje
 ## Limitations
 Public data only. Forecasts are statistical estimates, not guarantees; breakout and undervalued labels describe model expectations, not causal claims. Historical simulations show predictive usefulness, not that a trade would have produced the same result.
 
+- **The league-average column breaks at 2022.** `lg_woba` is the PA-weighted mean wOBA of the
+  Savant batter leaderboard (`type=batter, min=1`), which carries pitchers' batting lines
+  through 2021 and effectively drops them with the universal DH in 2022, so the series sits
+  about 5 wOBA points low before 2022. That column centres the league-relative target the model
+  is fitted on and supplies the forecast-date league estimate, so training targets from
+  2016-2021 are centred differently from the 2024-2026 test rows. Found during the Marcel audit
+  ([docs/MARCEL_AUDIT.md](docs/MARCEL_AUDIT.md), difference 7), reported rather than fixed --
+  the league definition is part of the frozen configuration -- and the strongest candidate for a
+  v2 re-freeze.
+- **Our Marcel is not Tango's Marcel.** It projects wOBA as one rate instead of per-component,
+  and it is only asked about hitters with 100+ PA in the prior season, which is the population it
+  handles best. Criterion 1 should be read as "beats that baseline on established hitters". All
+  thirteen differences are in [docs/MARCEL_AUDIT.md](docs/MARCEL_AUDIT.md).
 - **No park factors in v1.** Park is deferred to v2. A hitter's wOBA carries his home park, and nothing in the feature set separates the two, so a forecast for a hitter who changes parks -- or whose park is re-dimensioned -- absorbs that as a skill change. League-relative normalisation removes the league-wide environment, not the park, and the planned park ablation moves to v2 with the features.
 - **Breakout and regression probabilities are conditional on playing again.** They are scored only on players with at least 100 PA in the target season, matching the fold population, so they say nothing about the chance of losing playing time or missing the season.
 

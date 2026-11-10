@@ -87,7 +87,10 @@ bit-identical; and poisoning the test frame's outcomes changes nothing.
 
 **Baselines** -- `LastSeason`, `Weighted3`, and `MarcelBaseline` (weights 5/4/3,
 `regression_pa = 1200`, `age_factor` 0.006/0.003 either side of 29). Marcel is the one the
-criterion is measured against.
+criterion is measured against, and what our Marcel is -- a single-rate simplification of the
+published one, on a population it is strong on -- is audited difference by difference in
+[MARCEL_AUDIT.md](MARCEL_AUDIT.md). Criterion 1 is "beats that", not "beats Tango's Marcel",
+and the audit is written before the run so none of it can be produced afterwards as an excuse.
 
 **Comparison machinery** -- `paired_bootstrap_mae_diff`, `n_boot = 1000`, `seed = 0`, 95%
 percentile CI on the same test rows.

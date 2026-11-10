@@ -307,6 +307,26 @@ age brackets they are not -- printed by `run_holdout.py` for whichever fold it r
   finding for the write-up and for v2; it does not change the verdict, which reads the
   aggregate.
 
+#### The league-average column has a composition break at 2022
+
+Found while auditing Marcel (full treatment in [MARCEL_AUDIT.md](MARCEL_AUDIT.md), difference
+7) and recorded here because it reaches further than the baseline. `lg_woba` is the PA-weighted
+mean wOBA of every row in the Savant batter leaderboard, pulled with `type=batter, min=1`, and
+that leaderboard carries pitchers' batting lines through 2021 and effectively drops them with
+the universal DH in 2022. Measured as the gap between the all-rows league wOBA and the same
+figure over 100+ PA players: -0.0076 to -0.0096 for 2015-2021, then -0.0027 to -0.0032 from
+2022. So the series sits about 5 wOBA points low before 2022 relative to after it.
+
+That column is not only Marcel's regression target: it centres the league-relative target
+`ridge_rel` is fitted on (`y_woba - y_lg_woba`) and it supplies `lg_woba_hat`. Training rows
+with targets 2016-2019 and 2021 are therefore centred about 5 points differently from the
+2024-2026 test rows, which is a systematic inconsistency inside the extended window -- the
+window the selected configuration uses. It is **not** being fixed: the league definition is part
+of what the tag pins, a correction would rebuild every number in this file, and choosing to
+rebuild them while holding a known fold 2 result is exactly the move the freeze forbids. It is
+recorded as the strongest candidate for a v2 re-freeze, and the fold 3 write-up should name it
+beside the random-walk `lg_woba_hat` as a reason the level could be off.
+
 Open points from these runs:
 - The absolute-feature ridge degrades on the wider window (fold 2 bias -0.0141) and on synthetic
   two-season windows it blows up (MAE 0.068): near-constant `lg_woba_lag` columns get a large
