@@ -308,6 +308,69 @@ Reliability, equal-count deciles of predicted probability (36-37 rows each):
   the MAE and coverage pair in `folds.yaml`, both already met on fold 2. Nothing in the model,
   its features, or its alpha moved for this work, and fold 3 was not run.
 
+### Design-freeze decisions on the six open items (recorded 2026-11-09, before the tag)
+
+[DESIGN_FREEZE.md](DESIGN_FREEZE.md) section 3 lists six things that had to be settled before
+the tag, because an undecided item turns into a temptation to re-open the configuration after
+fold 3 is seen. All six are decided below. "Accept and report" is one of the decisions, used
+twice. None of them changes the selected configuration: no model, feature, threshold or alpha
+moved for this section, and fold 3 was not run.
+
+**1. The absolute-feature ridge stays, as the absolute-parameterisation reference only.**
+`ridge` (`models.ridge.RidgeForecaster` on `DEFAULT_FEATURES`) is not a candidate and is not in the
+holdout. It stays in `run_folds.py` and in the fold 1-2 table because it is the comparison that
+shows the league-relative parameterisation is doing the work: on the extended window it loses
+0.0030 of MAE on fold 1 (0.0312 against 0.0282) and 0.0026 on fold 2 (0.0289 against 0.0263),
+and it is the one model whose bias moves the wrong way as the window widens (fold 2 -0.0141).
+Dropping it would delete that evidence and leave "we centred the target on the league" an
+assertion. `run_holdout.py` reports `ridge_rel` only, so keeping it costs the holdout nothing.
+
+**2. The `lg_woba_lag` question is a v2 open question, not investigated further on fold 2.**
+The `league_rel` ablation showed that once the target is league-centred, absolute and relative
+rate lags carry the same information (-0.0000 MAE, CI +/-0.0002), which points at the
+league-level columns or the uncentred target as what breaks the absolute ridge on the wide
+window. That is as far as it gets resolved for v1. The reason to stop is that the question is
+about a reference model: `RELATIVE_FEATURES` has no `lg_woba_lag{k}` column, so no answer
+changes anything the tag pins, and every further look costs fold 2 evidence that is already
+thin at 362 rows. Recorded as a v2 question, to be answered on a window that is not the
+selection fold.
+
+**3. Contact quality stays, on the reading already written down.** Confirmed as stated: the
+group was adopted on +0.0008 MAE whose paired bootstrap CI touches zero (-0.0001 to +0.0017),
+so the MAE case alone does not carry it. It stays because dropping it also widens the 80%
+intervals (0.0899 against 0.0874) and pushes coverage to 0.831, near the top of the
+pre-registered 75-85% range -- the forecast gets noisier without the Statcast features even
+where their MAE gain is ambiguous -- and because the observed-versus-expected gap is one of the
+two questions v1 exists to answer, which needs xwOBA and contact quality in the model rather
+than only on the dashboard. The honest summary for the model card is that this group is
+justified by the interval width and the product question, not by a significant MAE difference.
+
+**4. `lg_woba_hat` stays a random walk for v1. A better estimator is v2 and is not attempted
+now.** The prior season's league wOBA is what the forecaster knows at the forecast date. Fold 1
+shows the cost when the environment moves: bias +0.0111 on the extended window. Any better
+estimator -- a trend, a shrunk mean, a state-space filter -- would have to be fitted on the
+2015-2026 league series, which contains fold 3's test season, so fitting one now is peeking.
+It is therefore named in advance as the most likely explanation if criterion 1 fails on fold 3
+(DESIGN_FREEZE section 6), which is an explanation and not a defence, and it is the first item
+on the v2 list.
+
+**5. The breakout probabilities ship uncorrected, and the under-confidence is reported.**
+The top decile of P(breakout) observed 0.649 against 0.496 predicted on fold 2, with deciles
+1-7 under-observing and a count-weighted reliability gap of 0.057. No calibration map is
+fitted: one fitted on fold 2 would need its own holdout to be worth anything, fold 3 is the one
+look and is not available for it, and a map fitted and then evaluated on the same 362 rows would
+report its own fit. The probabilities ship as a direct reading of the forecast distribution, the
+under-confidence goes into the model card as a known property, and `run_holdout.py` prints the
+fold 3 reliability deciles beside fold 2's so the two are read together. If fold 3 reproduces
+the shape, a calibration map with its own holdout is the v2 lever; if it does not, 36-37 rows a
+decile was the answer.
+
+**6. Park factors stay deferred to v2.** Nothing to do, and the point of recording it is that
+nothing gets quietly re-opened. The limitation is already written in the README: a hitter's wOBA
+carries his home park, nothing in the feature set separates the two, and league-relative
+normalisation removes the league-wide environment rather than the park. The park ablation moves
+to v2 with the features, which is why the ablation list above has five groups and no park row.
+
 ## 7. Production forecast (2027)
 After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the repo and publish before the 2027 season. Score them after 2027 as a prospective test. The production run uses the frozen configuration unchanged and needs no new tag ([DESIGN_FREEZE.md](DESIGN_FREEZE.md) section 7).
 

@@ -71,6 +71,10 @@ Each needs a decision recorded in `PROJECT_PLAN.md`, not necessarily a code chan
 report" is a valid decision; leaving one undecided is not, because it turns into a temptation to
 re-open the configuration after seeing fold 3.
 
+**All six are now decided.** The decisions, with the reasoning, are in `PROJECT_PLAN.md` section
+6 under "Design-freeze decisions on the six open items". None of them changed the configuration
+this file pins. The items stay listed below as the questions they answer.
+
 1. **The absolute-feature ridge.** It degrades on the wide window (fold 2 bias -0.0141) and
    blows up on synthetic two-season windows. Decide: keep it as the absolute-parameterisation
    reference, or drop it. It is not a candidate either way.
@@ -92,7 +96,7 @@ re-open the configuration after seeing fold 3.
 
 ## 4. Pre-freeze checklist
 
-- [ ] All six items in section 3 decided and written into `PROJECT_PLAN.md`.
+- [x] All six items in section 3 decided and written into `PROJECT_PLAN.md`.
 - [ ] `pytest` green and `ruff check src scripts tests` clean on the commit being tagged.
 - [ ] `git status` clean -- no uncommitted or untracked source changes.
 - [ ] `artifacts/fold_results.csv`, `ablation_results.csv`, `probability_results.csv` and
