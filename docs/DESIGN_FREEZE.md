@@ -51,6 +51,40 @@ edges, and `min_bucket`; baseline `weighted3_baseline` (`Weighted3`, weights 5/4
 no mean regression, no age adjustment); threshold `0.030`, closed on both sides. Definitions as
 registered in `PROJECT_PLAN.md` section 6.
 
+**Where the residuals come from** -- the training window, and nothing else. Both published
+uncertainty objects are a point fit plus a sample of that fit's residuals, so this is the one
+thing that could quietly turn the holdout into a look at its own answer. The chain, verified
+line by line and pinned by `tests/test_residual_provenance.py`:
+
+- `run_fold` and `run_probability_fold` both call `fold_frames(df, fold, cfg, extended=True)`,
+  which builds the train frame from the fold's training target seasons and the test frame from
+  the test target. Features for a target season come only from seasons strictly before it
+  (`tests/test_no_leakage.py`), so a training row for target 2024 is built from 2021-2023 and
+  scored against 2024.
+- `ResidualQuantileIntervals.fit(train, train["y_woba"])` fits `relative_ridge()` on the train
+  frame and takes `y_train - predict(train)`. `BucketedResidualDistribution.fit` is the same
+  construction, keeping the whole array instead of two quantiles. Neither `fit` is ever handed
+  the test frame; `run_fold` passes `train` and `run_holdout.py` does the same.
+- The sample is therefore exactly one residual per training row. On fold 2's extended window
+  that is 2,709 residuals, split 965 / 797 / 947 across the lag-1 PA buckets (a bucket under
+  `min_bucket = 50` would read the pooled 2,709 instead). The published 80% bound is the 10th
+  and 90th percentile of the row's own bucket, and the breakout/regression probabilities are
+  counts over that same sample.
+- At `predict_interval` / `prob_at_least` time the only columns read are the point model's
+  `RELATIVE_FEATURES` and `pa_lag1` for the bucket. No `y_` column is read, which is what
+  `test_predict_interval_ignores_target_season_columns` and
+  `test_probabilities_ignore_target_season_columns` assert by poisoning them.
+- Split conformal, the documented fallback, takes its residuals from a seeded 30% of the
+  *training* rows held out of the point fit. Held out of the fit, not held out of the fold: it
+  is still the training window and still never a test row.
+
+For fold 3 this means the residual sample is built from target seasons 2016-2019 and 2021-2025,
+so 2026 outcomes contribute nothing to the width of a 2026 interval or to a 2026 probability --
+they are only ever on the scoring side. `tests/test_residual_provenance.py` proves the three
+parts separately: the stored sample *is* the recomputed training residuals bucket by bucket;
+deleting the test season from the snapshot entirely leaves every bound and probability
+bit-identical; and poisoning the test frame's outcomes changes nothing.
+
 **Baselines** -- `LastSeason`, `Weighted3`, and `MarcelBaseline` (weights 5/4/3,
 `regression_pa = 1200`, `age_factor` 0.006/0.003 either side of 29). Marcel is the one the
 criterion is measured against.
