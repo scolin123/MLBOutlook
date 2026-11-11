@@ -1,21 +1,27 @@
 """The single entry point for the fold 3 holdout. Run once, after the design freeze.
 
 Written and tested before the freeze, as `docs/DESIGN_FREEZE.md` section 4 requires, so that
-nothing about the report is authored with a fold 3 number already in hand. It reports exactly
-what section 4 lists and nothing else:
+nothing about the report is authored with a fold 3 number already in hand. It reports what
+section 4 lists, plus the reporting-only readings added before the tag:
 
 - fold 3 on the extended window, once, with the selected configuration;
-- `ridge_rel` MAE and bias against all three baselines;
+- `ridge_rel` MAE, RMSE and bias against all three baselines, unweighted and PA-weighted;
 - the paired bootstrap of `ridge_rel - MarcelBaseline` MAE;
 - `resid_q_pa` 80% coverage, mean width, and coverage per lag-1 PA bucket and age bracket;
+- the population the scored rows are a subset of: eligible by prior-season PA, then 0 /
+  1-99 / 100+ target-season PA;
+- per player, `ridge_rel` minus Marcel and which of the two came closer (summary printed,
+  rows written);
 - breakout and regression Brier, skill against the training base rate, the reliability
   deciles, and precision at the top 10 and 25;
 - the pass/fail verdict from section 6;
 - `artifacts/fold3_*.csv`.
 
 No model selection, no threshold sweep (the registered 0.030 only), no second window, no
-ablation, no per-player listing. Those are all decided, and the point of the freeze is that
-there is nothing left to choose when this runs.
+ablation, and no per-player leaderboard printed. Those are all decided, and the point of the
+freeze is that there is nothing left to choose when this runs. Everything added beyond
+section 4's list is a reading of a quantity already pre-registered, and none of it feeds the
+verdict, which is the three criteria on the unweighted aggregate.
 
 **The gate.** Fold 3 is refused unless all three hold: `fold3.frozen` is `true` in
 `configs/folds.yaml`, HEAD is exactly tagged `design-freeze-v1`, and the working tree is
@@ -329,12 +335,21 @@ def print_report(
     )
 
     print(f"\npoint forecast ({MODEL}) against the three baselines:")
-    print(f"  model          MAE      bias     MAE vs {MODEL}")
+    print(
+        f"  {'':12s}  {'unweighted (the criterion)':^28s}   {'PA-weighted (reporting only)':^28s}"
+    )
+    print(
+        f"  model          MAE     RMSE      bias      MAE     RMSE      bias"
+        f"     MAE vs {MODEL}"
+    )
     mae = float(point.loc[MODEL, "mae"])
     for name in (*BASELINES, MODEL):
         row = point.loc[name]
         delta = "" if name == MODEL else f"{mae - float(row.mae):+.4f}"
-        print(f"  {name:12s}  {row.mae:.4f}  {row.bias:+.4f}   {delta:>10s}")
+        print(
+            f"  {name:12s}  {row.mae:.4f}  {row.rmse:.4f}  {row.bias:+.4f}"
+            f"   {row.mae_pa:.4f}  {row.rmse_pa:.4f}  {row.bias_pa:+.4f}   {delta:>10s}"
+        )
     diff, lo, hi = bootstrap
     clear = "clear of zero" if (hi < 0 or lo > 0) else "spans zero"
     print(

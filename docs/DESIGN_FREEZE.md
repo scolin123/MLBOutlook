@@ -148,7 +148,11 @@ this file pins. The items stay listed below as the questions they answer.
       training base rate, and the reliability deciles; print the pass/fail verdict from section 6;
       write `artifacts/fold3_*.csv`. No model selection, no threshold sweep, no second window.
 
-      Done, with precision@10 and @25 added to the probability block. Its gate refuses fold 3
+      Done. Beyond section 4's list it also reports, all of it reporting-only and none of it
+      feeding the verdict: RMSE and the PA-weighted trio for every model; coverage by age
+      bracket beside the PA buckets; the population the scored rows are a subset of; a
+      per-player `ridge_rel` minus Marcel file with which model came closer; and precision@10
+      and @25 in the probability block. Its gate refuses fold 3
       unless all three of `fold3.frozen` being `true`, HEAD being tagged exactly
       `design-freeze-v1`, and `git status --porcelain` printing nothing: a flipped flag in an
       uncommitted file is not a freeze, and a tagged commit with edits on top of it is not what

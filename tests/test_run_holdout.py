@@ -236,6 +236,11 @@ def test_run_holdout_reports_and_writes_every_frame(seasons_df, tmp_path, capsys
 
     out = capsys.readouterr().out
     assert "PASS / FAIL" in out
+    assert "PA-weighted (reporting only)" in out
+    assert "RMSE" in out
+    # Every model's PA-weighted MAE is printed, not just written.
+    for name in (*holdout.BASELINES, holdout.MODEL):
+        assert f"{point.set_index('model').loc[name, 'mae_pa']:.4f}" in out, name
     assert "precision@10" in out
     assert "conditional on" in out  # the population caveat is printed, not just written
 
