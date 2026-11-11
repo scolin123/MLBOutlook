@@ -138,7 +138,8 @@ this file pins. The items stay listed below as the questions they answer.
 - [ ] `git status` clean -- no uncommitted or untracked source changes.
 - [ ] `artifacts/fold_results.csv`, `ablation_results.csv`, `probability_results.csv` and
       `probability_reliability.csv` regenerated from that commit, and the numbers in the README
-      and `PROJECT_PLAN.md` matching them.
+      and `PROJECT_PLAN.md` matching them. `scripts/check_docs.py` does the matching (its
+      docstring lists the regeneration commands); it must exit 0.
 - [ ] Data snapshot SHA-256 and row count recorded in the freeze commit message.
 - [x] `scripts/run_holdout.py` written, reviewed, and tested on fold 2 before the tag -- not
       written after the flag is flipped. It must be the single entry point for the holdout, and
