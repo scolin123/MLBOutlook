@@ -1,0 +1,4 @@
+criterion,description,value,passed
+1,ridge_rel MAE below marcel MAE on the fold,0.0272 vs 0.0283,True
+2,"paired bootstrap of that difference, 95% CI excluding zero",-0.0011 (-0.0024 to +0.0003),False
+3,80% resid_q_pa coverage inside 0.75-0.85,0.836,True

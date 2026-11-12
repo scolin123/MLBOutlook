@@ -1,4 +1,4 @@
-"""Pre-freeze checklist item 4: do the numbers in the docs match the artifacts?
+"""Do the numbers in the docs match the artifacts? (Pre-freeze checklist item 4, and after.)
 
 `docs/DESIGN_FREEZE.md` section 4 requires that the artifacts be regenerated from the commit
 being tagged and that the numbers in the README and `PROJECT_PLAN.md` match them. Doing that
@@ -19,6 +19,14 @@ Run it after regenerating everything:
 
 Exit code is 0 when everything matches and 1 otherwise. Numbers the docs quote that no
 artifact carries are recomputed here from the snapshot rather than skipped.
+
+The `fold3_*` section covers the holdout write-up (README, `PROJECT_PLAN.md`, `MODEL_CARD.md`).
+It reads the committed `artifacts/fold3_*.csv` from the single look and never regenerates them:
+fold 3 is run once, so there is no command above that reproduces them, and `run_holdout.py`
+refuses to try unless HEAD is the tagged freeze commit with a clean tree. It also asserts the
+shape of the claim the write-up leads with -- criterion 2 failed, criteria 1 and 3 passed, so the
+verdict is FAIL -- because that sentence is the one thing in the docs a silently changed artifact
+could turn into a lie.
 """
 
 from __future__ import annotations
@@ -36,8 +44,9 @@ from mlb_outlook.models.marcel import DEFAULT_REGRESSION_PA, age_factor, marcel_
 ARTIFACTS = Path("artifacts")
 DATA = Path("data/processed/hitter_seasons.parquet")
 CONFIG = Path("configs/folds.yaml")
-# The holdout writes these per fold; the docs quote the fold 2 rehearsal.
+# The holdout writes these per fold; the docs quote the fold 2 rehearsal and the fold 3 run.
 REHEARSAL_FOLD = "fold2"
+HOLDOUT_FOLD = "fold3"
 
 fails: list[str] = []
 checks = 0
@@ -294,6 +303,170 @@ if players is not None:
     eq("players forecast lower than marcel", (gap < 0).sum(), 292, tol=0)
     eq("share where ridge_rel is closer", (players["advantage"] > 0).mean(), 0.530, tol=5e-4)
     eq("mean error advantage", players["advantage"].mean(), 0.0023)
+
+# ---- the holdout: every fold 3 number the write-up quotes ----
+
+section(f"{HOLDOUT_FOLD}_*.csv  (README + PROJECT_PLAN + MODEL_CARD holdout tables)")
+holdout = read(f"{HOLDOUT_FOLD}_point.csv")
+if holdout is not None:
+    h = holdout.set_index("model")
+    print("\n-- point forecasts, fold 3 extended (unweighted / PA-weighted) --")
+    point_doc = {
+        # model: (mae, mae_pa, rmse, rmse_pa, bias, bias_pa)
+        "last_season": (0.0347, 0.0318, 0.0449, 0.0409, 0.0043, 0.0001),
+        "weighted3": (0.0317, 0.0289, 0.0413, 0.0372, 0.0062, 0.0015),
+        "marcel": (0.0283, 0.0253, 0.0371, 0.0326, 0.0092, 0.0034),
+        "ridge_rel": (0.0272, 0.0247, 0.0347, 0.0311, 0.0012, -0.0039),
+    }
+    for model, values in point_doc.items():
+        row = h.loc[model]
+        for column, want in zip(
+            ("mae", "mae_pa", "rmse", "rmse_pa", "bias", "bias_pa"), values, strict=True
+        ):
+            eq(f"{column:8s} fold3 {model}", row[column], want)
+    eq("n_train fold3", h.loc["ridge_rel", "n_train"], 3071, tol=0)
+    eq("n_test fold3", h.loc["ridge_rel", "n_test"], 353, tol=0)
+
+    print("\n-- the edges the write-up quotes, as differences --")
+    eq("fold3 MAE edge over marcel",
+       h.loc["marcel", "mae"] - h.loc["ridge_rel", "mae"], 0.0011)
+    eq("fold3 PA-weighted edge over marcel",
+       h.loc["marcel", "mae_pa"] - h.loc["ridge_rel", "mae_pa"], 0.0006)
+    eq("fold3 RMSE edge over marcel",
+       h.loc["marcel", "rmse"] - h.loc["ridge_rel", "rmse"], 0.0024)
+
+    print("\n-- 80% intervals, fold 3 --")
+    eq("coverage fold3 resid_q_pa", h.loc["resid_q_pa", "coverage"], 0.836, tol=5e-4)
+    eq("width    fold3 resid_q_pa", h.loc["resid_q_pa", "width"], 0.0864)
+
+verdict = read(f"{HOLDOUT_FOLD}_verdict.csv")
+if verdict is not None:
+    print("\n-- the verdict: criterion 2 failed, so the verdict is FAIL --")
+    v = verdict.set_index("criterion")
+    checks += 1
+    passed = [bool(x) for x in v["passed"]]
+    if passed != [True, False, True]:
+        fails.append(f"the docs lead with a FAIL on criterion 2; artifact says {passed}")
+    print(f"  ok  criteria passed {passed} -> verdict {'PASS' if all(passed) else 'FAIL'}")
+    for criterion, want in {
+        1: "0.0272 vs 0.0283",
+        2: "-0.0011 (-0.0024 to +0.0003)",
+        3: "0.836",
+    }.items():
+        checks += 1
+        got = str(v.loc[criterion, "value"])
+        if got != want:
+            fails.append(f"fold3 criterion {criterion}: artifact {got!r} vs doc {want!r}")
+        print(f"  {'ok ' if got == want else 'BAD'} criterion {criterion} value {got!r}")
+
+coverage3 = read(f"{HOLDOUT_FOLD}_interval_coverage.csv")
+if coverage3 is not None:
+    print("\n-- coverage by slice, fold 3 --")
+    c3 = coverage3.set_index("range")
+    for name, (n, cov, width) in {
+        "pa_lag1 < 300": (100, 0.790, 0.0930),
+        "300 <= pa_lag1 < 500": (112, 0.848, 0.0867),
+        "pa_lag1 >= 500": (141, 0.858, 0.0815),
+        "age < 26": (73, 0.849, 0.0871),
+        "26 <= age < 31": (171, 0.836, 0.0867),
+        "age >= 31": (109, 0.826, 0.0853),
+    }.items():
+        eq(f"fold3 {name} n", c3.loc[name, "n"], n, tol=0)
+        eq(f"fold3 {name} coverage", c3.loc[name, "coverage"], cov, tol=5e-4)
+        eq(f"fold3 {name} width", c3.loc[name, "width"], width)
+    checks += 1
+    # The docs say one slice is outside the band on fold 3, and name which one.
+    out = list(c3.loc[(c3["coverage"] < 0.75) | (c3["coverage"] > 0.85)].index)
+    if out != ["pa_lag1 >= 500"]:
+        fails.append(f"docs name pa_lag1 >= 500 as the one slice outside the band; found {out}")
+    print(f"  ok  slices outside 0.75-0.85 {out}")
+
+population3 = read(f"{HOLDOUT_FOLD}_population.csv")
+if population3 is not None:
+    print("\n-- population accounting, fold 3: 23.4% not scored --")
+    eq("fold3 eligible", population3["eligible"].iloc[0], 461, tol=0)
+    eq("fold3 0 PA", population3["n"].iloc[0], 53, tol=0)
+    eq("fold3 1-99 PA", population3["n"].iloc[1], 55, tol=0)
+    eq("fold3 100+ PA (scored)", population3["n"].iloc[2], 353, tol=0)
+    eq("fold3 scored share", population3["share"].iloc[2], 0.766, tol=5e-4)
+    eq("fold3 excluded count", 461 - 353, 108, tol=0)
+    eq("fold3 excluded share", 1 - population3["share"].iloc[2], 0.234, tol=5e-4)
+
+probabilities3 = read(f"{HOLDOUT_FOLD}_probabilities.csv")
+if probabilities3 is not None:
+    print("\n-- probabilities, fold 3, registered threshold --")
+    p3 = probabilities3.set_index("label")
+    prob3_doc = {
+        "breakout": {
+            "n": 353, "base_rate_train": 0.156, "base_rate_test": 0.187,
+            "mean_predicted": 0.183, "brier": 0.1221, "brier_base": 0.1530, "skill": 0.202,
+            "brier_diff": -0.0309, "ci_low": -0.0451, "ci_high": -0.0160, "ece": 0.040,
+            "precision_at_10": 0.800, "precision_at_25": 0.640,
+        },
+        "regression": {
+            "n": 353, "base_rate_train": 0.277, "base_rate_test": 0.272,
+            "mean_predicted": 0.253, "brier": 0.1715, "brier_base": 0.1980, "skill": 0.134,
+            "brier_diff": -0.0266, "ci_low": -0.0397, "ci_high": -0.0113, "ece": 0.053,
+            "precision_at_10": 0.800, "precision_at_25": 0.760,
+        },
+    }
+    for label, wanted in prob3_doc.items():
+        for column, want in wanted.items():
+            eq(f"fold3 {label} {column}", p3.loc[label, column], want,
+               tol=0 if column == "n" else 5e-4)
+    checks += 1
+    # The docs say both CIs are clear of zero on fold 3; the verdict does not depend on it.
+    not_clear = [label for label in prob3_doc if p3.loc[label, "ci_high"] >= 0]
+    if not_clear:
+        fails.append(f"docs say both fold 3 probability CIs clear zero; these do not: {not_clear}")
+    print("  ok  both fold 3 probability CIs are clear of zero")
+
+reliability3 = read(f"{HOLDOUT_FOLD}_reliability.csv")
+if reliability3 is not None:
+    print("\n-- reliability deciles, fold 3 --")
+    r3 = reliability3.set_index(["label", "decile"])
+    deciles3 = {
+        "breakout": [
+            (0.023, 0.000), (0.054, 0.054), (0.081, 0.091), (0.103, 0.111), (0.132, 0.057),
+            (0.158, 0.171), (0.196, 0.114), (0.249, 0.343), (0.311, 0.371), (0.523, 0.556),
+        ],
+        "regression": [
+            (0.046, 0.054), (0.100, 0.176), (0.136, 0.194), (0.164, 0.176), (0.195, 0.250),
+            (0.235, 0.200), (0.285, 0.343), (0.347, 0.286), (0.421, 0.343), (0.603, 0.694),
+        ],
+    }
+    for label, rows in deciles3.items():
+        for decile, (predicted, observed) in enumerate(rows, start=1):
+            row = r3.loc[(label, decile)]
+            eq(f"fold3 {label} decile {decile} predicted", row["mean_predicted"], predicted,
+               tol=5e-4)
+            eq(f"fold3 {label} decile {decile} observed", row["observed"], observed, tol=5e-4)
+    checks += 1
+    counts3 = sorted(set(r3["n"]))
+    if min(counts3) < 33 or max(counts3) > 37:
+        fails.append(f"fold 3 decile counts outside the documented 33-37: {counts3}")
+    print(f"  ok  fold 3 decile n values {counts3}")
+    print("\n-- the top-decile breakout gap: +0.153 on fold 2, +0.032 on fold 3 --")
+    eq("fold3 top breakout decile gap", r3.loc[("breakout", 10), "gap"], 0.032, tol=5e-4)
+    if reliability is not None:
+        r2 = reliability.loc[reliability["threshold"] == 0.03].set_index(["label", "decile"])
+        eq("fold2 top breakout decile gap", r2.loc[("breakout", 10), "gap"], 0.153, tol=5e-4)
+
+players3 = read(f"{HOLDOUT_FOLD}_players.csv")
+if players3 is not None:
+    print("\n-- per player, fold 3 --")
+    gap3 = players3["ridge_rel_minus_marcel"]
+    eq("fold3 per-player gap mean", gap3.mean(), -0.0080)
+    eq("fold3 per-player gap median", gap3.median(), -0.0083)
+    eq("fold3 per-player gap sd", gap3.std(), 0.0129)
+    eq("fold3 per-player gap min", gap3.min(), -0.0551)
+    eq("fold3 per-player gap max", gap3.max(), 0.0281)
+    eq("fold3 players forecast higher than marcel", (gap3 > 0).sum(), 87, tol=0)
+    eq("fold3 players forecast lower than marcel", (gap3 < 0).sum(), 266, tol=0)
+    eq("fold3 share where ridge_rel is closer", (players3["advantage"] > 0).mean(), 0.533,
+       tol=5e-4)
+    eq("fold3 mean error advantage", players3["advantage"].mean(), 0.0011)
+    eq("fold3 rows scored", len(players3), 353, tol=0)
 
 # ---- numbers the docs quote that no artifact carries ----
 

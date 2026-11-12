@@ -1,0 +1,4 @@
+fold,target_season,eligible,bucket,n,share
+fold3,2026,461,0 PA (did not play),53,0.11496746203904555
+fold3,2026,461,1-99 PA (below the floor),55,0.1193058568329718
+fold3,2026,461,100+ PA (scored),353,0.7657266811279827

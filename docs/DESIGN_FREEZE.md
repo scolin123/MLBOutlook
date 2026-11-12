@@ -1,11 +1,19 @@
 # Design freeze and the fold 3 holdout
 
-**Status: not frozen.** Nothing in this file has been executed. Fold 3 (2026) has never been
-run, `configs/folds.yaml` still carries `frozen: false` for it, and no tag exists. This is the
-checklist to work through, the inventory of what the tag is supposed to pin, and the pass/fail
-rules written down while the result is still unknown.
+**Status: frozen and run. Verdict FAIL.** The checklist below was completed by hand, `fold3.frozen`
+was flipped to `true`, and the tag `design-freeze-v1` was created on commit
+`ab710f79e5c74dd367debb4f66bccec231ce3135`. Fold 3 (2026) was then run once from that commit, per
+section 5. **Criterion 2 failed**: the paired bootstrap of `ridge_rel` minus Marcel MAE is -0.0011
+with a 95% CI of -0.0024 to +0.0003, which contains zero, so the model is not shown to beat Marcel
+on 2026. Criteria 1 (MAE 0.0272 vs 0.0283) and 3 (coverage 0.836) passed. The result, the fold 2
+comparison and the secondary evidence are written up in [MODEL_CARD.md](MODEL_CARD.md) and
+`PROJECT_PLAN.md`; the artifacts are `artifacts/fold3_*.csv`.
 
-The tag and the fold 3 run are done by hand, in that order, by the repo owner.
+**Everything below this paragraph is the pre-registration and has not been edited since the tag.**
+It is the inventory of what the tag pins, the checklist worked through before it, and the pass/fail
+rules written down while the result was still unknown -- which is the only reason the verdict above
+means anything. The unchecked boxes in section 4 are the by-hand steps the repo owner did at the
+tag; they are left as written rather than back-filled after the run.
 
 ## 1. Why this exists
 

@@ -4,10 +4,13 @@
 
 MLB hitter forecasting for baseball operations: next-season projections with calibrated uncertainty, breakout/regression probabilities derived from the forecast distribution, historical comparables, and a buy-low / sell-high scouting dashboard.
 
-**Status:** v1 in development. Scope is MLB hitters only. Folds 1-2 run on real 2015-2026
-Savant data; fold 3 (2026) stays untouched until the design freeze, which has not happened --
-the checklist and the pass/fail rules are in [DESIGN_FREEZE.md](docs/DESIGN_FREEZE.md). See
-[Results so far](#results-so-far).
+**Status:** v1 holdout complete. **Verdict: FAIL.** Scope is MLB hitters only. The design was
+frozen at tag `design-freeze-v1` and fold 3 (2026) was run once from that commit, as
+[DESIGN_FREEZE.md](docs/DESIGN_FREEZE.md) sets out. Criterion 2 failed: the paired bootstrap of
+`ridge_rel` minus Marcel MAE is -0.0011 with a 95% CI of -0.0024 to +0.0003, which contains
+zero, so **the model is not shown to beat Marcel on 2026**. The full write-up, with the fold 2
+and fold 3 numbers side by side, is the [model card](docs/MODEL_CARD.md). See
+[Results](#results).
 
 ## Questions v1 answers
 1. Which hitters are likely to outperform what their recent results suggest (buy-low), and which to underperform (sell-high)?
@@ -36,11 +39,72 @@ Expanding-window folds; the model is re-initialized from scratch for each fold. 
 
 - An "extended" configuration adds 2015-2022 training seasons and is compared against the 2023-only version.
 - Hyperparameters, imputers, scalers, and calibration are fit only inside each training window.
-- Success criteria are fixed before the 2026 fold is run: beat Marcel MAE on folds 2 and 3 with a bootstrap CI excluding zero, and 80% intervals covering 75-85% of outcomes. If they are not met, that is reported as-is.
+- Success criteria were fixed before the 2026 fold was run: beat Marcel MAE on folds 2 and 3 with a bootstrap CI excluding zero, and 80% intervals covering 75-85% of outcomes. They were not met, and that is reported as-is below and in the [model card](docs/MODEL_CARD.md).
 - Ablations remove park, contact-quality, age, and shrinkage features one at a time.
 - A leakage test (`tests/test_no_leakage.py`) asserts no feature row uses data from the target season or later.
 
-### Results so far
+### Results
+
+#### The fold 3 holdout: FAIL
+
+Fold 3 (2026) was run once, from `scripts/run_holdout.py` on the commit tagged
+`design-freeze-v1`, writing `artifacts/fold3_*.csv`. The three criteria are the ones in
+`configs/folds.yaml`, written before fold 2 was run and unchanged since. **One of them failed, so
+the verdict is FAIL** -- not a partial success, and not a pass on two of three.
+
+| # | Criterion | Fold 2 (2025, selection) | Fold 3 (2026, holdout) | |
+|---|---|---|---|---|
+| 1 | `ridge_rel` MAE below Marcel MAE | 0.0263 vs 0.0285 | 0.0272 vs 0.0283 | pass |
+| 2 | Paired bootstrap of that difference, 95% CI excluding zero | -0.0023 (-0.0036 to -0.0008) | **-0.0011 (-0.0024 to +0.0003)** | **FAIL** |
+| 3 | 80% `resid_q_pa` coverage inside 0.75-0.85 | 0.815 | 0.836 | pass |
+
+**The model is not shown to beat Marcel on 2026.** The point estimate is 0.0011 of wOBA MAE in
+the model's favour and the 95% interval contains zero, which is the pre-registered definition of
+"not shown". This is the failure mode `DESIGN_FREEZE.md` section 6 named in advance, and nothing
+was re-fitted, re-tuned or re-run after the number was seen.
+
+Fold 2 and fold 3 side by side, extended window:
+
+| | Fold 2 (2025) | Fold 3 (2026) |
+|---|---|---|
+| Train rows / test rows | 2,709 / 362 | 3,071 / 353 |
+| `ridge_rel` MAE / Marcel MAE | 0.0263 / 0.0285 | 0.0272 / 0.0283 |
+| **Edge over Marcel** | **0.0023** | **0.0011** |
+| `ridge_rel` RMSE / Marcel RMSE | 0.0335 / 0.0368 | 0.0347 / 0.0371 |
+| `ridge_rel` bias / Marcel bias | -0.0013 / +0.0093 | +0.0012 / +0.0092 |
+| PA-weighted MAE, model / Marcel | 0.0240 / 0.0248 | 0.0247 / 0.0253 |
+| 80% coverage / mean width | 0.815 / 0.0874 | 0.836 / 0.0864 |
+| `ridge_rel` closer than Marcel on | 53.0% of players | 53.3% of players |
+| Breakout Brier / skill | 0.1061 / +0.254 | 0.1221 / +0.202 |
+| Regression Brier / skill | 0.1679 / +0.123 | 0.1715 / +0.134 |
+| Eligible players scored | 362 of 455 (79.6%) | 353 of 461 (**76.6%**) |
+
+**Why the margin halved: selection effects from fold-2 development.** Fold 2's 0.0023 is a
+selected number and fold 3's 0.0011 is not. Three model decisions, four interval approaches, six
+feature-group ablations and two probability labels at three thresholds each were all compared on
+the same 362 fold-2 rows, keeping whichever scored best. A maximum over many noisy comparisons on
+one sample overstates how the winner performs on a fresh one. Fold 3 is the first measurement on
+a sample that had no say in building the configuration, and it comes in at roughly half. The
+reading is supported by what did *not* move: Marcel's MAE (0.0285 -> 0.0283) and bias (+0.0093 ->
++0.0092), the per-player win rate (53.0% -> 53.3%), the mean interval width, and the PA-weighted
+edge, which was never a selection target (0.0008 -> 0.0006). 2026 was not a strange season; the
+true edge is smaller than fold 2 suggested. The other explanation named in advance --
+`lg_woba_hat` as a random walk -- is not the cause: criterion 1 passed and the model's 2026 bias
+is +0.0012, the best level of any model on the fold.
+
+The secondary evidence, none of which feeds the verdict: `ridge_rel` has the best level of the
+four models on 2026; the RMSE gap (0.0024) survives better than the MAE gap (0.0011); coverage is
+inside the band in aggregate with one slice outside it (`pa_lag1 >= 500` at 0.858, against fold
+2's `age < 26` at 0.870 -- a different slice each time, at 73-141 rows apiece); both probability
+labels still beat their base rate with a CI clear of zero, while fold 2's top-decile breakout
+under-confidence did *not* reproduce (gap +0.153 -> +0.032), which per design-freeze decision 5
+means 36-37 rows a decile was the answer and no calibration map is warranted; and **23.4% of the
+eligible population is not scored at all** (108 of 461 players), the largest share of the three
+folds, so every number here is conditional on the player taking 100 PA in 2026. All of it, with
+the per-slice and per-decile tables, is in the [model card](docs/MODEL_CARD.md) and
+[PROJECT_PLAN.md](docs/PROJECT_PLAN.md).
+
+#### Folds 1-2, the selection runs
 
 MAE on next-season wOBA, from `scripts/run_folds.py`, which writes `artifacts/fold_results.csv`.
 `ridge_rel` forecasts wOBA relative to the league average and puts the level back with the prior
@@ -73,7 +137,9 @@ number. Fold 2 is the selection fold; fold 1 is a sanity check only.
   squeeze (0.0248 against 0.0275). `run_folds.py` reports MAE, RMSE and bias both ways for every
   model; the pre-registered criterion is the unweighted MAE and stays that, with the weighted
   reading reported beside it. RMSE: 0.0335 against Marcel's 0.0368.
-- Fold 3 has not been run, and the design is not frozen.
+- **Read these as the selected numbers they are.** Fold 2 chose this configuration, so its 0.0263
+  and its 0.0023 edge are the best of several looks at one 362-row sample. The holdout above is
+  the same comparison on a sample that had no say in it.
 
 80% prediction intervals (`src/mlb_outlook/models/intervals.py`), coverage and mean width on
 fold 2, extended window. Each wraps the same point forecaster, so these compare uncertainty
@@ -91,6 +157,12 @@ are the current pick: they keep the full-data point fit, and per-bucket coverage
 (0.800 / 0.798 / 0.844 across the three PA buckets) than a constant width gives
 (0.800 / 0.845 / 0.867). Both in-sample approaches need the wide training window -- on fold 1's
 one-season base window, residual quantiles cover 0.628 and quantile regression 0.480.
+
+The selected approach held up on the holdout: **0.836 aggregate coverage on fold 3**, inside the
+band, at a mean width of 0.0864. Per PA bucket it reads 0.790 / 0.848 / 0.858 and per age bracket
+0.849 / 0.836 / 0.826, so the `pa_lag1 >= 500` bucket sits just outside the band where fold 2's
+`age < 26` bracket did -- a different slice each time, on 73-141 rows apiece. Criterion 3 passed
+and nothing was swapped to the conformal fallback.
 
 Feature-group ablations on the selected configuration (`scripts/run_ablations.py`, writes
 `artifacts/ablation_results.csv`), fold 2 only, one group dropped at a time and the model
@@ -149,8 +221,18 @@ probabilities cannot contradict the forecast -- there is no separate classifier.
 - Skill stays positive at thresholds of 0.020 and 0.040 for both labels. The registered 0.030
   does not move because a neighbour scores better.
 
+On fold 3 both labels still beat their base rate with a CI clear of zero -- breakout skill +0.202
+(Brier 0.1221 against 0.1530) and regression +0.134 (0.1715 against 0.1980) -- and precision@10 is
+0.800 for each, against 2026 chance levels of 0.187 and 0.272. **The top-decile under-confidence
+did not reproduce**: a +0.153 gap on fold 2 (0.649 observed against 0.496 predicted) became +0.032
+on fold 3 (0.556 against 0.523), and the count-weighted breakout gap fell from 0.057 to 0.040.
+Design-freeze decision 5 pre-committed to the reading, so 36-37 rows a decile was the answer and
+no calibration map is warranted. The probabilities were never a pass/fail criterion and do not
+offset the failed one.
+
 Per-decile tables and the per-threshold reading are in
-[PROJECT_PLAN.md](docs/PROJECT_PLAN.md); fold 3 has not been run and the design is not frozen.
+[PROJECT_PLAN.md](docs/PROJECT_PLAN.md); the fold 3 tables are there and in the
+[model card](docs/MODEL_CARD.md).
 
 ## Data
 - Statcast via `pybaseball`, MLB Stats API and the Chadwick register for player IDs. Seasons 2015-2026 are pulled for features and lag history.
@@ -179,7 +261,7 @@ pytest
 app/            Streamlit dashboard
 configs/        folds.yaml, data and model configs
 data/           raw/ and processed/ (git-ignored)
-docs/           PROJECT_PLAN.md (scope, evaluation, timeline), DESIGN_FREEZE.md (what the tag pins, how fold 3 is run, pass/fail), PLAN.md (overnight phases), REPORT_TEMPLATE.md
+docs/           PROJECT_PLAN.md (scope, evaluation, timeline), MODEL_CARD.md (the holdout result and the verdict), DESIGN_FREEZE.md (what the tag pins, how fold 3 was run, pass/fail), MARCEL_AUDIT.md, PLAN.md (overnight phases), REPORT_TEMPLATE.md
 notebooks/      data audit and feature analysis
 reports/        overnight run reports
 scripts/        run_folds.py, run_ablations.py, run_probabilities.py, night_run.sh (overnight driver), verify_phase.sh, check_bootstrap.sh
@@ -188,7 +270,7 @@ src/mlb_outlook/  ingestion, validation, features, context, models, evaluation, 
 tests/
 ```
 
-Project scope, models, and evaluation design: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md). What the design freeze pins and how the 2026 holdout gets its one run: [docs/DESIGN_FREEZE.md](docs/DESIGN_FREEZE.md). Phased plan for unattended overnight runs: [docs/PLAN.md](docs/PLAN.md), driven by `scripts/night_run.sh`.
+The holdout result, the FAIL verdict, and the limitations that follow from it: [docs/MODEL_CARD.md](docs/MODEL_CARD.md). Project scope, models, and evaluation design: [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md). What the design freeze pinned and how the 2026 holdout got its one run: [docs/DESIGN_FREEZE.md](docs/DESIGN_FREEZE.md). Phased plan for unattended overnight runs: [docs/PLAN.md](docs/PLAN.md), driven by `scripts/night_run.sh`.
 
 ## Roadmap
 Weeks 1-2: data audit, MySQL schema, ID mapping, as-of feature builder, leakage test, Marcel baseline. Weeks 3-5: fold harness, ridge forecaster, intervals, derived breakout probabilities, ablations, design freeze. Weeks 6-7: comps, undervalued ranking, dashboard. Week 8: run fold 3 once, write-up, model card. Week 9: 2027 production forecasts and deploy. Target completion around Jan 1, 2027, with February as buffer.
@@ -197,6 +279,15 @@ Out of scope for v1 (planned for v2): park factors, pitchers, minor-league proje
 
 ## Limitations
 Public data only. Forecasts are statistical estimates, not guarantees; breakout and undervalued labels describe model expectations, not causal claims. Historical simulations show predictive usefulness, not that a trade would have produced the same result.
+
+- **`ridge_rel` is not shown to beat Marcel on unseen data.** This is the headline limitation and
+  it is the holdout verdict. On the one season nothing was fitted to, the MAE edge over Marcel is
+  0.0011 with a 95% paired-bootstrap interval of -0.0024 to +0.0003. Read that as "not
+  demonstrated", and weigh what is demonstrated separately: a better level (bias +0.0012 against
+  Marcel's +0.0092), a wider RMSE gap than MAE gap, 80% intervals inside the pre-registered band
+  on both folds, and probability skill clear of its base rate on both folds. The intervals and
+  the probabilities are the part of v1 Marcel does not offer at all. Full reasoning in the
+  [model card](docs/MODEL_CARD.md).
 
 - **The league-average column breaks at 2022.** `lg_woba` is the PA-weighted mean wOBA of the
   Savant batter leaderboard (`type=batter, min=1`), which carries pitchers' batting lines

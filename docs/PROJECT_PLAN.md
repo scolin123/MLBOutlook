@@ -121,7 +121,8 @@ The distribution is empirical, so a probability is a count over the bucket's res
 sample and its granularity is 1/n for that bucket. That is a reported property, not a bug
 to smooth away before the freeze.
 
-**Evaluation, fold 2 only.** Fold 3 is not run for this and the design is not frozen.
+**Evaluation.** Registered as fold 2 only; the holdout reported the same quantities on fold 3 as
+evidence, at the registered threshold only and with no sweep. Both folds are tabulated below.
 - Brier score for P(breakout) and for P(regression) against the realized labels, each
   compared with a base-rate baseline that predicts the fold's *training-window* base rate for
   every player (the only base rate available at the forecast date). Reported as the Brier
@@ -149,7 +150,172 @@ coverage). These probabilities are derived from a distribution those criteria al
 so a third criterion on the same quantity would be double-counting. Fold 2 reports Brier,
 skill against the base rate, and the reliability gap as descriptive evidence.
 
-### Results to date (2026-11-09, folds 1-2 only)
+### The fold 3 holdout (2026): verdict FAIL
+
+Run once, from `scripts/run_holdout.py` on the commit tagged `design-freeze-v1`
+(`ab710f79e5c74dd367debb4f66bccec231ce3135`), on the frozen data snapshot
+(SHA-256 `b164c087...039cd8`, 9,804 rows). Artifacts: `artifacts/fold3_*.csv`. The full write-up
+is [MODEL_CARD.md](MODEL_CARD.md); this section carries the tables so they sit beside the fold 2
+ones they are meant to be read with.
+
+| # | Criterion | Fold 2 (2025, selection) | Fold 3 (2026, holdout) | |
+|---|---|---|---|---|
+| 1 | `ridge_rel` MAE below Marcel MAE | 0.0263 vs 0.0285 | 0.0272 vs 0.0283 | pass |
+| 2 | Paired bootstrap of that difference, 95% CI excluding zero | -0.0023 (-0.0036 to -0.0008) | **-0.0011 (-0.0024 to +0.0003)** | **FAIL** |
+| 3 | 80% `resid_q_pa` coverage inside 0.75-0.85 | 0.815 | 0.836 | pass |
+
+**Criterion 2 failed, so the verdict is FAIL.** [DESIGN_FREEZE.md](DESIGN_FREEZE.md) section 6
+defines pass as all three holding and fail as any one missing. One is missing. **The model is not
+shown to beat Marcel on 2026**: the point estimate is 0.0011 of wOBA MAE in its favour and the
+95% interval contains zero, which is the pre-registered meaning of "not shown". This is the
+failure mode named in advance ("beats Marcel but the CI crosses zero"), it is reported as a fail
+and not as a partial success, and nothing was re-fitted, re-tuned, swapped or re-run after the
+number was seen.
+
+Fold 3 point forecasts, extended window, 3,071 train rows and 353 test rows, unweighted /
+PA-weighted (`artifacts/fold3_point.csv`):
+
+| Model | MAE | RMSE | bias |
+|---|---|---|---|
+| last season | 0.0347 / 0.0318 | 0.0449 / 0.0409 | +0.0043 / +0.0001 |
+| 3-year weighted | 0.0317 / 0.0289 | 0.0413 / 0.0372 | +0.0062 / +0.0015 |
+| Marcel | 0.0283 / 0.0253 | 0.0371 / 0.0326 | +0.0092 / +0.0034 |
+| **ridge_rel** | **0.0272 / 0.0247** | **0.0347 / 0.0311** | **+0.0012 / -0.0039** |
+
+Fold 2 against fold 3 on everything the holdout reported:
+
+| | Fold 2 (2025) | Fold 3 (2026) |
+|---|---|---|
+| Train rows / test rows | 2,709 / 362 | 3,071 / 353 |
+| `ridge_rel` MAE / Marcel MAE | 0.0263 / 0.0285 | 0.0272 / 0.0283 |
+| **Edge over Marcel** | **0.0023** | **0.0011** |
+| Paired bootstrap, 95% CI | -0.0023 (-0.0036 to -0.0008) | -0.0011 (-0.0024 to +0.0003) |
+| `ridge_rel` RMSE / Marcel RMSE | 0.0335 / 0.0368 | 0.0347 / 0.0371 |
+| `ridge_rel` bias / Marcel bias | -0.0013 / +0.0093 | +0.0012 / +0.0092 |
+| PA-weighted MAE, model / Marcel | 0.0240 / 0.0248 | 0.0247 / 0.0253 |
+| PA-weighted edge | 0.0008 | 0.0006 |
+| 80% coverage / mean width | 0.815 / 0.0874 | 0.836 / 0.0864 |
+| `ridge_rel` closer than Marcel on | 53.0% of players | 53.3% of players |
+| Breakout Brier / skill | 0.1061 / +0.254 | 0.1221 / +0.202 |
+| Regression Brier / skill | 0.1679 / +0.123 | 0.1715 / +0.134 |
+| Eligible players scored | 362 of 455 (79.6%) | 353 of 461 (76.6%) |
+
+#### The halved margin is a selection effect from fold-2 development
+
+The edge over Marcel is 0.0011 on fold 3 against 0.0023 on fold 2. The explanation is that
+**fold 2's 0.0023 is a selected number and fold 3's 0.0011 is not.**
+
+Everything in this document above was decided by looking at fold 2: three model decisions, four
+interval approaches, six feature-group ablations, two probability labels at three thresholds
+each. Every one of those compared candidates on the same 362 rows and kept whichever scored best
+there -- which is what section 1 of DESIGN_FREEZE.md means by "every one of those looks spends a
+little of the evidence in fold 2". A maximum over many noisy comparisons on a single sample is
+biased upward as an estimate of the winner's performance on a fresh sample: part of the winning
+margin is signal that recurs, part is fold-2 noise that does not. Fold 3 is the first measurement
+of this configuration on a sample that had no say in building it, so it is the first estimate
+without that upward bias, and it is about half the size.
+
+What supports that reading over a 2026-specific explanation:
+
+- **The quantity the selection was run on is the one that shrank.** The PA-weighted edge, never a
+  selection target, went 0.0008 -> 0.0006. The per-player win rate went 53.0% -> 53.3%. The mean
+  interval width went 0.0874 -> 0.0864. Marcel's own MAE (0.0285 -> 0.0283) and bias (+0.0093 ->
+  +0.0092) barely moved, so the comparison's other side is stable across the two seasons.
+- **The softest piece of the design is the one flagged in advance.** Contact quality was adopted
+  on +0.0008 MAE with a CI touching zero (-0.0001 to +0.0017), recorded in decision 3 below as
+  not carried by its MAE case. Fold 3 is consistent with that group contributing less than fold 2
+  implied.
+- **The other pre-named explanation does not apply.** `lg_woba_hat` as a random walk was named in
+  DESIGN_FREEZE section 6 as the likely cause if criterion 1 failed. Criterion 1 passed, and
+  `ridge_rel`'s 2026 bias of +0.0012 is the best level of any model on the fold, so the league
+  estimate was not the problem on this season. The margin was.
+
+At 353 rows a 0.0011 edge cannot be distinguished from zero, which DESIGN_FREEZE section 6 said
+in advance was entirely possible even if the edge is real. The edge may be real. It is not
+demonstrated, and the pre-registered consequence of that is a fail.
+
+#### Fold 3 secondary evidence
+
+None of it feeds the verdict; all of it was registered to be reported either way.
+
+Interval coverage by slice (`artifacts/fold3_interval_coverage.csv`), fold 2 beside it:
+
+| Slice | Fold 3 n | Fold 3 coverage | Fold 3 width | Fold 2 coverage |
+|---|---|---|---|---|
+| pa_lag1 < 300 | 100 | 0.790 | 0.0930 | 0.800 |
+| 300 <= pa_lag1 < 500 | 112 | 0.848 | 0.0867 | 0.798 |
+| pa_lag1 >= 500 | 141 | **0.858** | 0.0815 | 0.844 |
+| age < 26 | 73 | 0.849 | 0.0871 | **0.870** |
+| 26 <= age < 31 | 171 | 0.836 | 0.0867 | 0.780 |
+| age >= 31 | 109 | 0.826 | 0.0853 | 0.838 |
+
+- One slice is outside the band on each fold and it is a different slice each time: `age < 26` on
+  fold 2 (0.870), `pa_lag1 >= 500` on fold 3 (0.858). At 73-141 rows apiece a coverage estimate
+  carries roughly +/-0.07 to +/-0.09 at 95%, so neither is clearly outside and the two do not
+  describe a common fault. Flagged for v2, as the fold 2 reading already said; nothing changed.
+- The widths are near-identical to fold 2's, so the higher aggregate coverage (0.836) comes from
+  the 2026 errors being a little smaller relative to the training residual spread, not from the
+  intervals having moved.
+
+Probabilities at the registered +/-0.030 threshold, 353 rows
+(`artifacts/fold3_probabilities.csv`), with fold 2's row above each:
+
+| Label | Fold | base rate train / test | mean predicted | Brier | base-rate Brier | skill | model - base rate (95% CI) | gap |
+|---|---|---|---|---|---|---|---|---|
+| breakout | 2 | 0.154 / 0.171 | 0.171 | 0.1061 | 0.1422 | +0.254 | -0.0361 (-0.0501 to -0.0226) | 0.057 |
+| breakout | **3** | 0.156 / 0.187 | 0.183 | 0.1221 | 0.1530 | **+0.202** | -0.0309 (-0.0451 to -0.0160) | 0.040 |
+| regression | 2 | 0.279 / 0.257 | 0.273 | 0.1679 | 0.1914 | +0.123 | -0.0235 (-0.0373 to -0.0091) | 0.039 |
+| regression | **3** | 0.277 / 0.272 | 0.253 | 0.1715 | 0.1980 | **+0.134** | -0.0266 (-0.0397 to -0.0113) | 0.053 |
+
+| Label | Fold 2 @10 | Fold 3 @10 | Fold 2 @25 | Fold 3 @25 | Fold 3 chance |
+|---|---|---|---|---|---|
+| breakout | 0.900 | 0.800 (8 of 10) | 0.680 | 0.640 (16 of 25) | 0.187 |
+| regression | 0.800 | 0.800 (8 of 10) | 0.600 | 0.760 (19 of 25) | 0.272 |
+
+Reliability, equal-count deciles (33-37 rows each), fold 3 beside fold 2
+(`artifacts/fold3_reliability.csv`):
+
+| Decile | f2 breakout pred / obs | f3 breakout pred / obs | f2 regression pred / obs | f3 regression pred / obs |
+|---|---|---|---|---|
+| 1 | 0.019 / 0.000 | 0.023 / 0.000 | 0.056 / 0.054 | 0.046 / 0.054 |
+| 2 | 0.051 / 0.000 | 0.054 / 0.054 | 0.107 / 0.111 | 0.100 / 0.176 |
+| 3 | 0.074 / 0.056 | 0.081 / 0.091 | 0.142 / 0.250 | 0.136 / 0.194 |
+| 4 | 0.097 / 0.111 | 0.103 / 0.111 | 0.179 / 0.108 | 0.164 / 0.176 |
+| 5 | 0.116 / 0.079 | 0.132 / 0.057 | 0.224 / 0.171 | 0.195 / 0.250 |
+| 6 | 0.150 / 0.029 | 0.158 / 0.171 | 0.262 / 0.243 | 0.235 / 0.200 |
+| 7 | 0.186 / 0.139 | 0.196 / 0.114 | 0.312 / 0.257 | 0.285 / 0.343 |
+| 8 | 0.228 / 0.333 | 0.249 / 0.343 | 0.375 / 0.361 | 0.347 / 0.286 |
+| 9 | 0.289 / 0.306 | 0.311 / 0.371 | 0.442 / 0.444 | 0.421 / 0.343 |
+| 10 | **0.496 / 0.649** | **0.523 / 0.556** | 0.626 / 0.568 | 0.603 / 0.694 |
+
+- **Both labels beat their base rate on fold 3 with a paired bootstrap CI clear of zero.** This is
+  the part of the holdout that reproduced cleanly. It is evidence, it was registered as not being
+  a criterion, and it does not offset the criterion that failed.
+- **Fold 2's top-decile breakout under-confidence did not reproduce.** The gap fell from +0.153
+  (0.649 observed against 0.496 predicted) to +0.032 (0.556 against 0.523), and the
+  count-weighted gap from 0.057 to 0.040. Decision 5 below pre-committed to the reading: if fold
+  3 reproduced the shape, a calibration map with its own holdout was the v2 lever; if not,
+  36-37 rows a decile was the answer. **It did not reproduce, so that was the answer**, and the
+  calibration map comes off the v2 list. Regression's count-weighted gap moved the other way
+  (0.039 -> 0.053), consistent with the same sampling noise rather than a fixable bias.
+- Breakout skill fell (+0.254 -> +0.202) and regression skill rose (+0.123 -> +0.134). Breakout's
+  test base rate rose to 0.187, which lifts the base-rate Brier it is scored against as well as
+  the model's own, so the fall is not a clean statement about the model.
+
+Per player (`artifacts/fold3_players.csv`), the same summary the fold 2 table below carries:
+
+| Reading | Fold 2 | Fold 3 |
+|---|---|---|
+| forecast gap, `ridge_rel` - Marcel | mean -0.0105, median -0.0095, sd 0.0123 | mean -0.0080, median -0.0083, sd 0.0129 |
+| gap range | -0.0557 to +0.0204 | -0.0551 to +0.0281 |
+| higher than Marcel / lower | 70 / 292 | 87 / 266 |
+| `ridge_rel` closer to the outcome | 53.0% | 53.3% |
+| mean error advantage | +0.0023 | +0.0011 |
+
+The per-player win rate is the one reading that did not shrink; what shrank is the size of the
+wins. Nothing beyond this summary was inspected on fold 3, as DESIGN_FREEZE section 5 requires.
+
+### Fold 1-2 results (the selection runs, 2026-11-09)
 
 Real 2015-2026 Savant hitter seasons; MAE on next-season wOBA, `base / extended` training window.
 Baselines do not train, so the window does not move them.
@@ -183,10 +349,11 @@ reproduces it exactly. For the record, fold 2 base `ridge_rel` bias at this comm
 and fold 2 extended is -0.0013; neither is step 1's -0.0017, because neither model is step 1's.
 
 Selected configuration: `ridge_rel` on the extended window. Against Marcel on fold 2, paired
-bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. Fold 3 has not been run
-and the design is not frozen.
+bootstrap -0.0023 (95% CI -0.0036 to -0.0008), RMSE 0.0335 vs 0.0368. These are the numbers that
+chose the configuration, so they are the best of several looks at one 362-row sample; the holdout
+section above is the same comparison on a sample that had no say in it, and it failed criterion 2.
 
-### Population accounting (`evaluation/diagnostics.py`), both folds
+### Population accounting (`evaluation/diagnostics.py`), all three folds
 
 Every forecast, interval and probability in this project is conditional on the player taking
 100 plate appearances in the target season. That condition was stated when the probability
@@ -198,10 +365,12 @@ those players did next (`scripts/run_folds.py`, writes `artifacts/population_acc
 |---|---|---|---|---|
 | fold 1 (2024) | 461 | 50 (10.8%) | 53 (11.5%) | **358 (77.7%)** |
 | fold 2 (2025) | 455 | 38 (8.4%) | 55 (12.1%) | **362 (79.6%)** |
+| fold 3 (2026) | 461 | 53 (11.5%) | 55 (11.9%) | **353 (76.6%)** |
 
-- **About a fifth of the eligible population is not scored at all** -- 22.3% on fold 1, 20.4% on
-  fold 2 -- and the scored count reconciles exactly with the fold's test row count, which is the
-  check the script prints.
+- **About a fifth to a quarter of the eligible population is not scored at all** -- 22.3% on
+  fold 1, 20.4% on fold 2 and **23.4% on fold 3**, the holdout's being the largest of the three
+  (108 of 461 players) -- and the scored count reconciles exactly with the fold's test row count,
+  which is the check the script prints.
 - **This is the honest reading of every probability here.** P(breakout) is not the chance a
   hitter breaks out; it is the chance he breaks out *given* he takes 100 PA. The players who
   drop out are disproportionately the ones whose forecast was worst, so the real-world
@@ -209,8 +378,9 @@ those players did next (`scripts/run_folds.py`, writes `artifacts/population_acc
   item, not something to bolt on after the freeze.
 - **The attrition is also why the interval criterion is evaluated where it is.** Coverage is
   measured on players who played; a hitter who got hurt has no wOBA to be covered.
-- Fold 3's accounting reads 2026 playing time, so it is run only from `run_holdout.py` and only
-  at the single look. `run_folds.py` skips the holdout fold entirely.
+- Fold 3's accounting reads 2026 playing time, so it was run only from `run_holdout.py` and only
+  at the single look; its row above comes from `artifacts/fold3_population.csv`, not from
+  `population_accounting.csv`, because `run_folds.py` skips the holdout fold entirely.
 
 ### RMSE and PA-weighted error (`evaluation/harness.py`), both folds
 
@@ -264,8 +434,9 @@ Fold 2, extended window, 362 test rows, unweighted / PA-weighted:
 | split conformal, PA buckets | 0.837 | 0.0916 | 0.0264 |
 | quantile regression on residuals | 0.801 | 0.0857 | 0.0263 |
 
-Both halves of the pre-registered criterion are now met on fold 2: Marcel beaten with a bootstrap
-CI clear of zero, and 80% coverage inside 75-85% for every approach tried.
+Both halves of the pre-registered criterion are met on fold 2: Marcel beaten with a bootstrap
+CI clear of zero, and 80% coverage inside 75-85% for every approach tried. On fold 3 the coverage
+half held (0.836) and the Marcel half did not; see the holdout section above.
 
 - Current pick: residual quantiles by lag-1 PA bucket. It keeps the full-data point fit, and its
   per-bucket coverage is flatter (0.800 / 0.798 / 0.844) than the constant conformal width manages
@@ -332,9 +503,10 @@ age brackets they are not -- printed by `run_holdout.py` for whichever fold it r
   residual spread depend on features generally, is the v2 lever -- and `quantile_reg` already
   does the general version, at 0.801 aggregate on this fold. Picking it now, on the strength of
   one 77-row bracket seen after the fact, is what the freeze exists to prevent.
-- The holdout prints the same two slices for fold 3. A bracket outside the band there is a
-  finding for the write-up and for v2; it does not change the verdict, which reads the
-  aggregate.
+- The holdout printed the same two slices for fold 3, and one bucket there is outside the band:
+  `pa_lag1 >= 500` at 0.858, while every age bracket is inside. So the two folds put a different
+  slice outside the band, on 73-141 rows apiece, which is a finding for v2 and not a change to
+  the verdict -- the verdict reads the aggregate, and the fold 3 aggregate of 0.836 passed.
 
 #### The league-average column has a composition break at 2022
 
@@ -478,8 +650,10 @@ Reliability, equal-count deciles of predicted probability (36-37 rows each):
   gap is 0.057 for breakout and 0.039 for regression, whose worst row is decile 3 (0.250
   against 0.142).
 - **Nothing was fitted to fix that.** A post-hoc calibration map on fold 2 would need its own
-  holdout to be worth anything, and fold 3 is not available for it. The under-confidence goes
-  into the freeze as a reported property; if fold 3 reproduces it, that is the v2 lever.
+  holdout to be worth anything, and fold 3 was not available for it. The under-confidence went
+  into the freeze as a reported property, on the pre-committed understanding that reproducing on
+  fold 3 would make it the v2 lever. **It did not reproduce** -- the top-decile gap fell from
+  +0.153 to +0.032 -- so 36-37 rows a decile was the answer and no calibration map is warranted.
 - **Granularity is not the limit.** The PA buckets hold 965 / 797 / 947 training residuals,
   so a probability resolves to about 0.001.
 - **Threshold sensitivity.** Skill stays positive for both labels at every threshold:
@@ -554,8 +728,30 @@ carries his home park, nothing in the feature set separates the two, and league-
 normalisation removes the league-wide environment rather than the park. The park ablation moves
 to v2 with the features, which is why the ablation list above has five groups and no park row.
 
+**How fold 3 resolved the two conditional decisions.** Written after the holdout; the six
+decisions above are the pre-tag record and are not edited.
+
+- **Decision 4 (`lg_woba_hat` as a random walk)** was named in advance as the most likely
+  explanation if criterion 1 failed. Criterion 1 passed on fold 3 and `ridge_rel`'s 2026 bias is
+  +0.0012, the best level of any model on the fold, so the random walk cost nothing visible on
+  this season and is not the explanation for the fail. It stays first on the v2 list on its own
+  merits -- fold 1's +0.0111 is still what it costs when the environment moves.
+- **Decision 5 (breakout under-confidence)** registered both branches: reproduce on fold 3 and a
+  calibration map with its own holdout becomes the v2 lever; do not reproduce and 36-37 rows a
+  decile was the answer. The top-decile gap fell from +0.153 to +0.032 and the count-weighted gap
+  from 0.057 to 0.040, so **it did not reproduce** and the calibration map comes off the v2 list.
+  The probabilities ship uncorrected, as they were going to either way.
+
 ## 7. Production forecast (2027)
 After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the repo and publish before the 2027 season. Score them after 2027 as a prospective test. The production run uses the frozen configuration unchanged and needs no new tag ([DESIGN_FREEZE.md](DESIGN_FREEZE.md) section 7).
+
+Fold 3 has now been reviewed and the verdict is FAIL, which does not change this plan: a fail is
+not retried and the fold 3 number from `design-freeze-v1` stands as the v1 result
+([DESIGN_FREEZE.md](DESIGN_FREEZE.md) section 7). The 2027 forecast is the same frozen
+configuration published prospectively, and given a holdout that could not distinguish the model's
+edge from zero on 353 rows, it is the read worth waiting for rather than any further backtest.
+The v2 re-freeze list, in the order the evidence now points, is in
+[MODEL_CARD.md](MODEL_CARD.md) section 6.
 
 ## 8. Timeline (~9 weeks + Feb buffer)
 - W1 (Oct 27): repo, uv/ruff/pre-commit, MySQL schema (docker compose), ID mapping, ingest 2015-2026, data audit.
@@ -565,7 +761,8 @@ After fold 3 review, retrain on all data through 2026, freeze forecasts, tag the
 - W5: ablations, empirical Bayes check, extended-vs-2023-only comparison. Design freeze.
 - W6: similarity/comps, undervalued ranking.
 - W7: dashboard.
-- W8: run fold 3 once, write-up, model card, data dictionary.
+- W8: run fold 3 once, write-up, model card, data dictionary. *Fold 3 run once and the write-up
+  and [MODEL_CARD.md](MODEL_CARD.md) done; verdict FAIL. Data dictionary outstanding.*
 - W9: 2027 production forecasts, deploy, README polish.
 - Feb: buffer / stretch (pitchers v2 start, Statcast pitch-level features).
 
