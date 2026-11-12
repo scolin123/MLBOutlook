@@ -16,7 +16,7 @@ folds:
     train_targets: [2023, 2024, 2025]
     test_target: 2026
     purpose: FINAL holdout; run once after design freeze (git tag)
-    frozen: false
+    frozen: true
 
 production:
   name: prod2027
