@@ -1,9 +1,16 @@
-"""Local-file data access for the app. Fold 2 backtest only.
+"""Local-file data access for the app. The fold 2 backtest, plus the fold 3 holdout scores.
 
-Everything here reads `artifacts/fold2_*` and the parquet snapshot. The demo is the fold 2
-backtest: 2025 forecasts made from data through 2024, scored against what happened in 2025.
-Seasons after 2025 are dropped on load, so nothing from the fold 3 holdout season (2026) can
-reach a page.
+Everything player-level reads `artifacts/fold2_*` and the parquet snapshot. The demo is the
+fold 2 backtest: 2025 forecasts made from data through 2024, scored against what happened in
+2025. Seasons after 2025 are dropped on load, so **no 2026 player row reaches any page** --
+not a forecast, not an outcome, not a comp.
+
+The one exception is deliberate and aggregate-only: the model-performance page reports the
+fold 3 (2026) holdout result, because a page that scored the model while hiding the verdict
+from its one honest test would be misleading. It reads the aggregate tables -- `fold3_point`,
+`fold3_verdict`, `fold3_interval_coverage`, `fold3_probabilities`, `fold3_reliability`,
+`fold3_population` -- and never `fold3_players.csv`, which is per-player 2026. `holdout_*`
+below is the only route to any of it, and `HOLDOUT_ARTIFACTS` is the whole list.
 """
 
 from __future__ import annotations
@@ -23,6 +30,15 @@ FOLD = "fold2"
 TARGET_SEASON = 2025
 FEATURES_THROUGH = 2024
 LAST_VISIBLE_SEASON = TARGET_SEASON  # the backtest's outcome season; 2026 is never shown
+
+# The design-freeze holdout. Scores only: see the module docstring.
+HOLDOUT_FOLD = "fold3"
+HOLDOUT_TARGET_SEASON = 2026
+HOLDOUT_FEATURES_THROUGH = 2025
+HOLDOUT_TAG = "design-freeze-v1"
+HOLDOUT_ARTIFACTS = (
+    "point", "verdict", "interval_coverage", "probabilities", "reliability", "population",
+)
 
 BACKTEST_LABEL = (
     f"Fold 2 backtest: {TARGET_SEASON} forecasts made from data through {FEATURES_THROUGH}, "
@@ -76,6 +92,37 @@ def forecasts() -> pd.DataFrame:
 
 def artifact(name: str) -> pd.DataFrame:
     return pd.read_csv(ARTIFACTS / f"{FOLD}_{name}.csv")
+
+
+def holdout_available() -> bool:
+    """Has the holdout been run and its aggregate output committed?"""
+    return all((ARTIFACTS / f"{HOLDOUT_FOLD}_{n}.csv").exists() for n in HOLDOUT_ARTIFACTS)
+
+
+def holdout_artifact(name: str) -> pd.DataFrame:
+    """One aggregate fold 3 table. Refuses anything not on `HOLDOUT_ARTIFACTS`.
+
+    The guard is the point: `fold3_players.csv` exists beside these and is per-player 2026, so
+    the allowlist is what stops a later page from reaching it through this function.
+    """
+    if name not in HOLDOUT_ARTIFACTS:
+        raise ValueError(
+            f"{name!r} is not an aggregate holdout table; allowed: {HOLDOUT_ARTIFACTS}"
+        )
+    return pd.read_csv(ARTIFACTS / f"{HOLDOUT_FOLD}_{name}.csv")
+
+
+def verdict_label(verdict: pd.DataFrame) -> str:
+    """PASS only if every pre-registered criterion passed, else FAIL.
+
+    Read off the artifact rather than written down, so the app cannot state a verdict the
+    numbers beside it do not support.
+    """
+    return "PASS" if bool(verdict["passed"].astype(bool).all()) else "FAIL"
+
+
+def failed_criteria(verdict: pd.DataFrame) -> pd.DataFrame:
+    return verdict.loc[~verdict["passed"].astype(bool)]
 
 
 def manifest() -> dict:

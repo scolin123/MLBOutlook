@@ -35,8 +35,15 @@ with c2:
 with c3:
     card("80% interval coverage", f"{point.loc['resid_q_pa', 'coverage']:.1%}", "target 75-85%")
 with c4:
-    passed = int(verdict["passed"].astype(bool).sum())
-    card("Fold 2 criteria met", f"{passed} / {len(verdict)}", "pre-registered")
+    if data.holdout_available():
+        # The holdout verdict is the headline number in this project, pass or fail.
+        holdout = data.holdout_artifact("verdict")
+        met = int(holdout["passed"].astype(bool).sum())
+        card("Fold 3 holdout verdict", data.verdict_label(holdout),
+             f"{met} of {len(holdout)} pre-registered criteria met")
+    else:
+        passed = int(verdict["passed"].astype(bool).sum())
+        card("Fold 2 criteria met", f"{passed} / {len(verdict)}", "pre-registered")
 
 st.markdown(
     f"""
@@ -47,8 +54,9 @@ st.markdown(
   comps with what they did next.
 - **Projection disagreements** -- every forecast player, sortable by where the model and
   Marcel disagree most, by breakout or regression probability, or by interval width.
-- **Model performance** -- the fold 2 tables: point error against the baselines, interval
-  coverage, the probability scores and their reliability.
+- **Model performance** -- point error against the baselines, interval coverage, the
+  probability scores and their reliability, for the fold 2 backtest and for the fold 3
+  (2026) holdout, with the pre-registered verdict.
 
 ### How to read it
 
@@ -58,7 +66,10 @@ next to what happened in {data.TARGET_SEASON}. A projection disagreement is a st
 two forecasts, not a claim that a player is mispriced. Breakout and regression are defined
 against a weighted three-year baseline, plus or minus .030 wOBA.
 
-The final holdout season (2026) is not shown anywhere in this app.
+**No 2026 player appears anywhere in this app** -- not a forecast, not an outcome, not a comp.
+The 2026 holdout season reaches one page, Model performance, and only as aggregate scores and
+the pre-registered verdict, because a page that scores the model while hiding the result of its
+one honest test would be misleading.
 """
 )
 info = data.manifest()

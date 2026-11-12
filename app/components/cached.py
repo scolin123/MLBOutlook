@@ -23,6 +23,11 @@ def artifact(name: str) -> pd.DataFrame:
     return data.artifact(name)
 
 
+@st.cache_data(show_spinner=False)
+def holdout_artifact(name: str) -> pd.DataFrame:
+    return data.holdout_artifact(name)
+
+
 @st.cache_data(show_spinner="Finding comps...")
 def comps(player_id: int, k: int = 10):
     return data.comps(seasons(), player_id, k=k)

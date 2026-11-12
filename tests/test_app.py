@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 pytest.importorskip("streamlit")
@@ -55,6 +56,37 @@ def test_the_backtest_is_fold2_and_never_the_holdout_season():
     assert data.LAST_VISIBLE_SEASON < 2026
 
 
+def test_the_holdout_is_reachable_only_as_aggregate_tables():
+    """The one way 2026 reaches a page is `holdout_artifact`, and it refuses per-player rows."""
+    assert data.HOLDOUT_FOLD == "fold3"
+    assert data.HOLDOUT_TARGET_SEASON == 2026
+    assert "players" not in data.HOLDOUT_ARTIFACTS
+    assert "forecasts" not in data.HOLDOUT_ARTIFACTS
+    for name in ("players", "forecasts", "../fold2_players"):
+        with pytest.raises(ValueError, match="aggregate holdout table"):
+            data.holdout_artifact(name)
+
+
+def test_only_the_data_module_names_the_holdout_fold():
+    """`components/data.py` is the single gateway. A page that built its own `fold3_*` path
+    would bypass the allowlist and could read the per-player 2026 rows."""
+    gateway = APP / "components" / "data.py"
+    assert "fold3" in gateway.read_text(encoding="utf-8")
+    for path in APP.rglob("*.py"):
+        if path == gateway:
+            continue
+        assert "fold3" not in path.read_text(encoding="utf-8"), path
+
+
+def test_the_verdict_label_is_read_off_the_artifact():
+    frame = pd.DataFrame({"criterion": [1, 2, 3], "passed": [True, True, True]})
+    assert data.verdict_label(frame) == "PASS"
+    assert data.failed_criteria(frame).empty
+    frame.loc[1, "passed"] = False
+    assert data.verdict_label(frame) == "FAIL"
+    assert list(data.failed_criteria(frame)["criterion"]) == [2]
+
+
 def test_formatters():
     assert woba(0.345) == ".345"
     assert woba(float("nan")) == "-"
@@ -103,6 +135,37 @@ def test_page_renders_without_error(page):
     at = AppTest.from_file(str(page), default_timeout=120).run()
     assert not at.exception, [e.value for e in at.exception]
     assert any("Fold 2 backtest" in m.value for m in at.markdown)
+
+
+@needs_artifacts
+@pytest.mark.skipif(not data.holdout_available(), reason="fold 3 holdout not run")
+def test_model_performance_shows_the_holdout_verdict_and_both_folds():
+    from streamlit.testing.v1 import AppTest
+
+    at = AppTest.from_file(str(PAGES[3]), default_timeout=120).run()
+    assert not at.exception, [e.value for e in at.exception]
+
+    verdict = data.holdout_artifact("verdict")
+    label = data.verdict_label(verdict)
+    assert label == "FAIL", "the committed fold 3 artifact says FAIL; the page must say so"
+    assert any(f"Fold 3 holdout verdict: {label}" in h.value for h in at.subheader)
+    # A fail is announced as an error, names the criterion that missed, and is not dressed up.
+    assert len(at.error) == 1
+    shown = at.error[0].value
+    assert f"Verdict {label}" in shown
+    assert "not shown to beat" in shown
+    assert "partial success" in shown
+    assert not at.success
+
+    # Both folds' criteria, side by side, and the fold 3 column marks the failure.
+    criteria = at.dataframe[0].value
+    assert list(criteria["fold 3 result"]) == ["pass", "FAIL", "pass"]
+    assert "fold 2 (selection)" in criteria.columns
+
+    # Aggregate only: nothing on this page is per player, so no 2026 hitter can reach it.
+    for shown_frame in at.dataframe:
+        columns = set(shown_frame.value.columns)
+        assert not columns & {"player_id", "name", "y_woba"}, columns
 
 
 @needs_artifacts
