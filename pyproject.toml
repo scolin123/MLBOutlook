@@ -31,7 +31,7 @@ packages = ["src/mlb_outlook"]
 
 [tool.ruff]
 line-length = 100
-src = ["src", "tests"]
+src = ["src", "tests", "app"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]
