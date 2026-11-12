@@ -69,3 +69,25 @@ row count in that commit's message; then `git tag -a design-freeze-v1` on that f
 - `.env` was created locally with random passwords. It is git-ignored and was not committed.
 - Unrelated: two containers from another project (`whichllm-postgres-1`, `whichllm-redis-1`)
   show as exited. I left them alone.
+
+### 6. Historical comps -- see the commit "historical comps"
+
+- `mlb_outlook.comps.find_comps(df, player_id, season, k=10)`: the k nearest player-seasons of
+  *other* players, on z-scored age plus league-relative wOBA, xwOBA, K%, BB%, average exit
+  velocity, barrel% and hard-hit%. Each comp comes with its following season (PA, wOBA, and
+  the change in league-relative wOBA). `comps_summary` condenses that to one line.
+- **Decision (most conservative reading):** "use only seasons before the query season" is
+  applied to the comps' *outcomes* too. A comp season is therefore at most `season - 2`, so
+  its following year is still before the query season. This costs the most recent comp year.
+  If you'd rather allow `season - 1` comps, whose outcome is the query season itself (known at
+  the forecast date), change one line in `comp_pool`.
+- **Decision:** K% and BB% are league-relative too, not raw, so seasons from different
+  eras compare on the same footing.
+- **Decision:** 2020 is excluded as a comp season (60-game rates). Comps who didn't play
+  the following year stay in the list with `next_pa = 0`, so the comps' futures aren't
+  survivor-biased. A query missing any feature is refused rather than imputed.
+- Tests (12): every comp and outcome season is before the query; poisoning or deleting later
+  seasons leaves the answer unchanged; a constant shift of the query season leaves it
+  unchanged; the player is never his own comp; a constructed twin is nearest.
+- Sanity check on real data: Judge's 2024 season returns Alvarez 2022, Trout 2021, and
+  Harper 2021.
