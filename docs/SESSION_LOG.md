@@ -42,3 +42,30 @@ in this log's copy on `v1-app` and in the summary there. Nothing from Part 2 is 
 What's left for you, by hand (DESIGN_FREEZE.md section 4): flip `fold3.frozen` to `true` in a
 commit on top of the candidate, with nothing else changed, recording the SHA-256 above and the
 row count in that commit's message; then `git tag -a design-freeze-v1` on that flip commit.
+
+## Part 2 -- branch `v1-app`, from the freeze candidate `dfc9901db62dca98b41164ed164bbab7d0b66727`
+
+### 5. MySQL -- `5ec3b6e`
+
+- `sql/001_schema.sql`: `data_versions` (SHA-256), `players`, `player_seasons` (keyed by data
+  version, so a re-pull sits beside the old snapshot), `model_runs`, `predictions` (point,
+  80% bounds, Marcel and Weighted3, the three probabilities, outcome columns; model version
+  and data version on every row), `evaluation_results` (long format).
+- `mlb_outlook.db.loader` (`uv run python -m mlb_outlook.db.loader`): idempotent; refuses if
+  the parquet's hash differs from the one the fold 2 artifacts were built from.
+- No artifact held per-player probabilities, so `scripts/export_fold2_forecasts.py` computes
+  them by calling the frozen code read-only, on fold 2 only, and writes
+  `artifacts/fold2_forecasts.csv` + `fold2_manifest.json`. It checks that its point fit
+  equals `fold2_players.csv`'s `ridge_rel` to 1e-9. The mean P(breakout) is 0.1705, the
+  same as the registered fold 2 figure.
+- Model version = `ridge_rel+resid_q_pa@<last commit touching the frozen paths>`
+  (currently `@548a941ff747`), so app and docs commits don't mint new model versions.
+- **Docker: ran it.** Docker Desktop was installed but stopped; I started it. Port 3306 was
+  already taken by a local `mysqld` (PID 5388, not Docker), which I did not touch. The
+  compose host port is now `${MYSQL_PORT:-3306}` (the default is unchanged), and this
+  machine's `.env` sets 3307. The load against MySQL 8.4.13 gave 9,804 player-seasons,
+  2,814 players, 362 predictions, and 252 evaluation rows. The fold 2 MAE recomputed in SQL
+  is 0.0263. The integration tests (4) pass, and they skip when no server is reachable.
+- `.env` was created locally with random passwords. It is git-ignored and was not committed.
+- Unrelated: two containers from another project (`whichllm-postgres-1`, `whichllm-redis-1`)
+  show as exited. I left them alone.
