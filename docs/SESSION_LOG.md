@@ -1,5 +1,40 @@
 # Session log
 
+## Summary (read this first)
+
+**Everything in the queue is done and committed. Nothing failed.**
+
+- **Freeze candidate: `dfc9901db62dca98b41164ed164bbab7d0b66727`**, the tip of `real-data`.
+  It contains all of Part 1 and nothing from Part 2. On it, `pytest` passes (366), ruff is
+  clean, `check_docs.py` matches 260 numbers with 0 mismatches, the fold 2 rehearsal
+  reproduces the published numbers, and `run_holdout.py` refuses fold 3.
+- Data SHA-256 is unchanged: `b164c087e6186d989f52bebdcc1b1153f25f7de5d8f2f6b8ddb003c906039cd8`
+  (9,804 rows). It was checked at the start, after Part 1, and at the end.
+- Part 2 is on `v1-app` (`5ec3b6e` MySQL, `08f4216` comps, `5278cd4` app). There are no
+  changes to the frozen paths since the candidate (verified with `git diff`). `pytest`:
+  408 passed, including the 4 MySQL integration tests against a live container.
+- Not done, by rule: no fold 3 run, no flip, no tag, no push. `main` is untouched.
+
+**Decisions waiting for you**
+
+1. Freeze: flip `fold3.frozen` on top of `dfc9901` (nothing else in that commit, with the
+   hash and row count in the message), then tag that commit `design-freeze-v1`. Note that
+   `real-data` has one docs-only commit (this log) after `2d4a307`; the candidate includes it.
+2. Comps outcome rule: I used the strict reading (comp seasons <= query - 2, so their
+   following year is also before the query). Do you want to allow query - 1?
+3. Comps: K% and BB% are league-relative, 2020 is excluded as a comp season, and features
+   are equally weighted. All three are easy to change.
+4. Docker: Docker Desktop was started for this session. A local `mysqld` (not Docker) owns
+   port 3306, so this machine's `.env` uses `MYSQL_PORT=3307`. The container
+   `diamondiq-mysql` is still running with the fold 2 load in it; stop it with
+   `docker compose down` if you don't want it.
+5. Two app-related changes outside the new modules: compose's host port is now
+   `${MYSQL_PORT:-3306}` (the default is unchanged), and `pyproject.toml` lists `app` as
+   first-party for ruff.
+6. The first line of your pasted queue was `claude --model sonnet --permission-mode auto`.
+   I treated it as a stray paste and ignored it.
+
+---
 Unattended session, 2026-11-11. Hard rules followed throughout: fold 3 never run, `frozen`
 never flipped, no tags created or moved, nothing pushed, `main` untouched, frozen modules and
 `configs/folds.yaml` unchanged, data not re-pulled.
@@ -91,3 +126,28 @@ row count in that commit's message; then `git tag -a design-freeze-v1` on that f
   unchanged; the player is never his own comp; a constructed twin is nearest.
 - Sanity check on real data: Judge's 2024 season returns Alvarez 2022, Trout 2021, and
   Harper 2021.
+
+### 6 (commit) -- `08f4216`
+
+### 7. Streamlit app -- `5278cd4`
+
+- `uv run streamlit run app/Home.py`. Pages: Home, Player, Projection disagreements, Model
+  performance. Plotly charts, a Savant-inspired palette (blue-grey-red percentile bars), and
+  no third-party assets.
+- Reads local files only (`artifacts/fold2_*`, the parquet). MySQL is not wired in yet.
+  Every page shows a "Fold 2 backtest: 2025 forecasts made from data through 2024... Not a
+  live projection" banner. Seasons after 2025 are dropped on load, so 2026 never reaches a
+  page. 2025 actuals appear only labelled "hindsight", and on the board they're behind a
+  toggle that is off by default.
+- Player page: wOBA/xwOBA history with the forecast, its 80% interval, Marcel and the 2025
+  actual; a probability bar; the gap to Marcel; a 2024 percentile panel; season lines; and
+  10 comps with what they did next.
+- Board: sortable by model minus Marcel (either direction), breakout, regression, and
+  interval width (either direction), with a min-PA filter and a model-vs-Marcel scatter.
+- Model performance: the fold 2 verdict, point table (unweighted and PA-weighted), coverage
+  by slice, probability scores, reliability chart, and the population table.
+- The word "undervalued" appears nowhere in `app/`, and a test enforces that.
+- Tests (14) use Streamlit's `AppTest` to render all four pages headless and to exercise the
+  board sort and the player selector. I also launched the server and checked all routes.
+- `pyproject.toml`: `app` was added to ruff's first-party `src` list. That is the only change
+  outside the new modules besides the compose port.
