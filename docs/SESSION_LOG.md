@@ -116,6 +116,10 @@ row count in that commit's message; then `git tag -a design-freeze-v1` on that f
   its following year is still before the query season. This costs the most recent comp year.
   If you'd rather allow `season - 1` comps, whose outcome is the query season itself (known at
   the forecast date), change one line in `comp_pool`.
+  **Superseded:** that is now the rule. Comp seasons run to `season - 1` and outcomes to
+  `season`, which is complete at the forecast date, so the most recent comp year is back
+  (+461 pool rows for a 2024 query). Nothing after `season` is read and the as-of test is
+  unchanged. See the module docstring in `comps/neighbors.py`.
 - **Decision:** K% and BB% are league-relative too, not raw, so seasons from different
   eras compare on the same footing.
 - **Decision:** 2020 is excluded as a comp season (60-game rates). Comps who didn't play

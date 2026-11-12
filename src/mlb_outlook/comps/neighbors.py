@@ -3,15 +3,23 @@
 A query is one player-season `(player_id, season)`: "who looked like this hitter did in
 `season`, and what happened to them the year after?"
 
-**The as-of rule.** Every row the answer reads from another player -- the comp season, the
-comp's following season, the league averages and the standardization statistics -- comes
-from seasons strictly before the query season. That is why a comp season can be at most
-`season - 2`: its following year, the outcome we show, must itself be before the query
-season. From `season` itself only two things are read, both to place the query: the query's
-own row, and that season's league means (to make the query league-relative; the season is
-complete at the forecast date). Nothing after `season` is read at all. This is the literal
-reading of "use only seasons before the query season" and it costs the most recent comp
-year; the stricter rule was chosen on purpose (`docs/SESSION_LOG.md`).
+**The as-of rule.** Nothing after the query season is read, ever. The forecast date is the end
+of `season`'s regular season, so `season` is complete and known; everything after it is not.
+That is the line the rule draws:
+
+- **Comp seasons** are strictly before `season`, so at most `season - 1`.
+- **Comp outcomes** -- the following year we show -- run through `season` itself. A comp season
+  of `season - 1` has its outcome in `season`, which is known at the forecast date.
+- **League means and standardization statistics** come from the comp pool and from each
+  season's own rows, none of them later than `season`.
+- From `season` itself three things are read: the query's own row, that season's league means
+  (to place the query league-relative), and the outcomes of `season - 1` comps.
+
+An earlier version stopped comp seasons at `season - 2` so that outcomes too were strictly
+before `season`. That was stricter than the forecast date requires and it threw away the most
+recent comp year -- the one most likely to resemble a current hitter -- so the rule is now the
+one above. The as-of guarantee is unchanged in substance: a comp and its outcome are both
+knowable when the forecast is made.
 
 **Features.** Age plus league-relative wOBA, xwOBA, K%, BB%, average exit velocity, barrel%
 and hard-hit%. Each rate is relative to that season's PA-weighted league mean, so a 2016
@@ -60,15 +68,21 @@ def comp_pool(
 ) -> pd.DataFrame:
     """Candidate comp seasons for a query in `season`, each with its following season.
 
-    Reads nothing from `season` or later.
+    Comp seasons are strictly before `season`; their outcomes run through `season` itself,
+    which is complete at the forecast date. Reads nothing after `season`.
     """
     history = league_relative(df.loc[df["season"] < season])
     pool = history.loc[
-        (history["season"] <= season - 2)
+        (history["season"] <= season - 1)
         & (history["pa"] >= min_pa)
         & ~history["season"].isin(list(exclude_seasons))
     ].dropna(subset=COMP_FEATURES)
-    nxt = history[["player_id", "season", "pa", "woba", "woba_rel"]].rename(
+    # Outcomes reach one season further than the comps do: a comp season of `season - 1` has
+    # its following year in `season`, which is known when the forecast is made. Each season's
+    # league mean is computed from its own rows, so widening the frame by one season does not
+    # move the `_rel` columns of any earlier season.
+    outcomes = league_relative(df.loc[df["season"] <= season])
+    nxt = outcomes[["player_id", "season", "pa", "woba", "woba_rel"]].rename(
         columns={"pa": "next_pa", "woba": "next_woba", "woba_rel": "next_woba_rel"}
     )
     nxt = nxt.assign(season=nxt["season"] - 1)

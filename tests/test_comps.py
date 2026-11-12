@@ -22,11 +22,24 @@ def query(seasons_df):
 # ---- the as-of rule ----
 
 
-def test_every_comp_and_its_outcome_is_before_the_query_season(seasons_df, query):
+def test_no_comp_or_outcome_comes_from_after_the_query_season(seasons_df, query):
+    """The as-of rule: comps are strictly earlier, outcomes reach the query season at most."""
     comps = find_comps(seasons_df, query, QUERY_SEASON, k=25)
     assert len(comps) == 25
-    assert (comps["season"] <= QUERY_SEASON - 2).all()
-    assert (comps["next_season"] < QUERY_SEASON).all()
+    assert (comps["season"] <= QUERY_SEASON - 1).all()
+    assert (comps["next_season"] <= QUERY_SEASON).all()
+
+
+def test_the_most_recent_comp_year_is_available(seasons_df, query):
+    """A comp from `season - 1` is allowed: its outcome lands in the query season, which is
+    complete at the forecast date. The pool reaches that far, and the outcome comes with it."""
+    pool = comp_pool(seasons_df, QUERY_SEASON)
+    recent = pool.loc[pool["season"] == QUERY_SEASON - 1]
+    assert len(recent) > 0
+    assert (recent["next_season"] == QUERY_SEASON).all()
+    # Their outcomes are populated, not left as the did-not-play fallback.
+    assert (recent["next_pa"] > 0).any()
+    assert recent["next_woba"].notna().any()
 
 
 def test_later_seasons_cannot_change_the_answer(seasons_df, query):
@@ -41,20 +54,27 @@ def test_later_seasons_cannot_change_the_answer(seasons_df, query):
 
 
 def test_the_query_season_is_read_only_through_relative_position(seasons_df, query):
-    """Shift every query-season rate by a constant: the league means move with it, the
-    query's league-relative line does not, so the comps must not change. Comp outcomes stop
-    at `season - 1`, so none of them can see the query season at all."""
+    """Shift every query-season rate by a constant: the league means move with it, so nothing
+    league-relative changes. Which comps are chosen, in what order, at what distance, and what
+    their outcomes were *relative to the league* must all be identical. Only the raw wOBA of an
+    outcome that falls in the query season moves, because the whole season moved."""
     before = find_comps(seasons_df, query, QUERY_SEASON, k=15)
     shifted = seasons_df.copy()
     same = shifted["season"] == QUERY_SEASON
     for col in ("woba", "xwoba", "k_pct", "bb_pct", "avg_ev", "barrel_pct", "hard_hit_pct"):
         shifted.loc[same, col] += 0.05
     after = find_comps(shifted, query, QUERY_SEASON, k=15)
-    pd.testing.assert_frame_equal(before, after, check_exact=False, rtol=1e-9, atol=1e-12)
-    # And a comp pool built for the query season contains no row from it or later.
+    invariant = [c for c in before.columns if c != "next_woba"]
+    pd.testing.assert_frame_equal(
+        before[invariant], after[invariant], check_exact=False, rtol=1e-9, atol=1e-12
+    )
+    # The one column that may move, and only for outcomes inside the query season.
+    moved = before["next_woba"] != after["next_woba"]
+    assert (before.loc[moved, "next_season"] == QUERY_SEASON).all()
+    # And a comp pool built for the query season reads nothing after it.
     pool = comp_pool(seasons_df, QUERY_SEASON)
-    assert pool["season"].max() <= QUERY_SEASON - 2
-    assert pool["next_season"].max() <= QUERY_SEASON - 1
+    assert pool["season"].max() <= QUERY_SEASON - 1
+    assert pool["next_season"].max() <= QUERY_SEASON
 
 
 def test_the_query_player_is_never_his_own_comp(seasons_df, query):
@@ -71,7 +91,7 @@ def test_an_identical_earlier_season_is_the_nearest_comp(seasons_df, query):
     twin_id = int(df["player_id"].max()) + 1
     twin = q.copy()
     twin["player_id"] = twin_id
-    twin["season"] = 2020 + 1  # 2021, so its next season (2022) is before the query
+    twin["season"] = 2020 + 1  # 2021: an eligible comp season, next season 2022
     # Make the twin's league-relative line match the query's exactly.
     rel = league_relative(df.loc[df["season"].isin([QUERY_SEASON, 2021])])
     shift = {
