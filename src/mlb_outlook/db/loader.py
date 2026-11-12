@@ -1,11 +1,23 @@
-"""Load the data snapshot and the fold 2 backtest artifacts into MySQL.
+"""Load the data snapshot, the fold 2 backtest and the prod2027 forecasts into MySQL.
 
-Idempotent: re-running replaces the snapshot's player-seasons and the fold 2 run (its
+Two runs, distinguished by `model_runs.run_kind`:
+
+- **backtest** -- fold 2, with its evaluation tables and the 2025 outcomes, so the
+  `predictions` rows carry `actual_woba` and `actual_pa`.
+- **production** -- prod2027, loaded when `artifacts/prod2027_*` are there. No evaluation
+  tables and no outcome columns, because 2027 has not happened: the whole point of these rows
+  is that they are in the database before the answer is.
+
+Both carry their model version and data version on every prediction row, so a row read on
+its own still says what made it.
+
+Idempotent: re-running replaces the snapshot's player-seasons and each run it loads (whose
 predictions and evaluation rows cascade), and leaves other data versions and runs alone.
 
     docker compose up -d
     uv run python scripts/run_holdout.py --rehearse fold2
     uv run python scripts/export_fold2_forecasts.py
+    uv run python scripts/export_prod2027_forecasts.py
     uv run python -m mlb_outlook.db.loader
 
 The connection string is `DATABASE_URL`, from the environment or from `.env`.
@@ -34,6 +46,7 @@ CONFIG = Path("configs/folds.yaml")
 SCHEMA = Path("sql/001_schema.sql")
 FOLD = "fold2"
 CONFIG_NAME = "extended"
+PRODUCTION_RUN = "prod2027"
 
 SEASON_COLUMNS = [
     "player_id", "season", "age", "pa", "woba", "xwoba",
@@ -56,6 +69,13 @@ PREDICTION_COLUMNS = {
     "p_regression": "p_regression",
     "y_woba": "actual_woba",
     "y_pa": "actual_pa",
+}
+# prod2027_forecasts.csv has no outcome columns to map: the season has not been played, so
+# actual_woba and actual_pa stay NULL until it has.
+PRODUCTION_PREDICTION_COLUMNS = {
+    source: target
+    for source, target in PREDICTION_COLUMNS.items()
+    if not source.startswith("y_")
 }
 # Evaluation artifacts: file suffix -> (columns naming the model, columns naming the slice).
 EVALUATION_SOURCES = {
@@ -151,12 +171,22 @@ def season_rows(df: pd.DataFrame, data_version_id: int) -> list[dict]:
 
 
 def prediction_rows(
-    forecasts: pd.DataFrame, *, model_run_id: int, model_version: str, data_version_id: int
+    forecasts: pd.DataFrame,
+    *,
+    model_run_id: int,
+    model_version: str,
+    data_version_id: int,
+    columns: dict[str, str] = PREDICTION_COLUMNS,
 ) -> list[dict]:
-    missing = set(PREDICTION_COLUMNS) - set(forecasts.columns)
+    """Prediction rows for one run. `columns` maps forecast columns to database columns.
+
+    A production run passes `PRODUCTION_PREDICTION_COLUMNS`, which leaves out the outcome
+    pair; a backtest passes the default, which includes it.
+    """
+    missing = set(columns) - set(forecasts.columns)
     if missing:
         raise ValueError(f"forecasts are missing columns: {sorted(missing)}")
-    frame = forecasts[list(PREDICTION_COLUMNS)].rename(columns=PREDICTION_COLUMNS)
+    frame = forecasts[list(columns)].rename(columns=columns)
     frame.insert(0, "model_run_id", model_run_id)
     frame.insert(1, "model_version", model_version)
     frame.insert(2, "data_version_id", data_version_id)
@@ -248,21 +278,26 @@ def load_snapshot(conn: Connection, df: pd.DataFrame, sha256: str, source: str) 
     return data_version_id
 
 
-def load_fold_run(
+def replace_run(
     conn: Connection,
     *,
     data_version_id: int,
     manifest: dict,
+    run_kind: str,
+    fold: str,
+    config: str,
     train_targets: Iterable[int],
-    forecasts: pd.DataFrame,
-    evaluations: dict[str, pd.DataFrame],
 ) -> int:
-    """Replace the (model_version, data version, fold, config) run and load its rows."""
+    """Delete and re-insert one (model_version, data version, fold, config) run; return its id.
+
+    That four-column key is the table's unique key, so this is what makes a reload idempotent:
+    the old run's predictions and evaluation rows cascade away with it.
+    """
     key = {
         "mv": manifest["model_version"],
         "d": data_version_id,
-        "fold": manifest["fold"],
-        "config": CONFIG_NAME,
+        "fold": fold,
+        "config": config,
     }
     conn.execute(
         sa.text(
@@ -276,11 +311,12 @@ def load_fold_run(
         sa.text(
             "INSERT INTO model_runs (model_version, data_version_id, run_kind, fold, config, "
             "train_targets, target_season, features_through, git_commit, generated_at) "
-            "VALUES (:mv, :d, 'backtest', :fold, :config, :train, :target, :through, "
+            "VALUES (:mv, :d, :kind, :fold, :config, :train, :target, :through, "
             ":commit, :generated)"
         ),
         key
         | {
+            "kind": run_kind,
             "train": ",".join(str(t) for t in train_targets),
             "target": manifest["target_season"],
             "through": manifest["features_through"],
@@ -288,7 +324,7 @@ def load_fold_run(
             "generated": generated[:19].replace("T", " ") if generated else None,
         },
     )
-    run_id = int(
+    return int(
         conn.execute(
             sa.text(
                 "SELECT model_run_id FROM model_runs WHERE model_version = :mv "
@@ -296,6 +332,27 @@ def load_fold_run(
             ),
             key,
         ).scalar_one()
+    )
+
+
+def load_fold_run(
+    conn: Connection,
+    *,
+    data_version_id: int,
+    manifest: dict,
+    train_targets: Iterable[int],
+    forecasts: pd.DataFrame,
+    evaluations: dict[str, pd.DataFrame],
+) -> int:
+    """Replace the fold's backtest run and load its predictions and evaluation rows."""
+    run_id = replace_run(
+        conn,
+        data_version_id=data_version_id,
+        manifest=manifest,
+        run_kind="backtest",
+        fold=manifest["fold"],
+        config=CONFIG_NAME,
+        train_targets=train_targets,
     )
     _insert(
         conn,
@@ -312,6 +369,46 @@ def load_fold_run(
     return run_id
 
 
+def load_production_run(
+    conn: Connection, *, data_version_id: int, manifest: dict, forecasts: pd.DataFrame
+) -> int:
+    """Replace the production run and load its predictions. No evaluation rows exist yet.
+
+    `run_kind` is 'production' and the outcome columns stay NULL, which is the difference that
+    matters: a query can tell a forecast whose season has been played from one whose has not
+    without knowing which fold names mean what.
+    """
+    run_id = replace_run(
+        conn,
+        data_version_id=data_version_id,
+        manifest=manifest,
+        run_kind="production",
+        fold=manifest["run"],
+        config=manifest["config"],
+        train_targets=manifest["train_targets"],
+    )
+    _insert(
+        conn,
+        "predictions",
+        prediction_rows(
+            forecasts,
+            model_run_id=run_id,
+            model_version=manifest["model_version"],
+            data_version_id=data_version_id,
+            columns=PRODUCTION_PREDICTION_COLUMNS,
+        ),
+    )
+    return run_id
+
+
+def _check_hash(data: Path, sha: str, manifest: dict, what: str) -> None:
+    if sha != manifest["data_sha256"]:
+        raise RuntimeError(
+            f"{data} hashes to {sha}, but the {what} artifacts were built from "
+            f"{manifest['data_sha256']}; regenerate them before loading"
+        )
+
+
 def load_all(
     engine: Engine,
     *,
@@ -319,14 +416,11 @@ def load_all(
     artifacts: Path = ARTIFACTS,
     config: Path = CONFIG,
     schema: Path = SCHEMA,
-) -> dict[str, int]:
+) -> dict[str, int | None]:
+    """Load the snapshot, the fold 2 backtest, and prod2027 if its artifacts are present."""
     manifest = json.loads((artifacts / f"{FOLD}_manifest.json").read_text())
     sha = file_sha256(data)
-    if sha != manifest["data_sha256"]:
-        raise RuntimeError(
-            f"{data} hashes to {sha}, but the fold 2 artifacts were built from "
-            f"{manifest['data_sha256']}; regenerate them before loading"
-        )
+    _check_hash(data, sha, manifest, "fold 2")
     df = pd.read_parquet(data)
     cfg = load_folds_config(config)
     fold = next(f for f in cfg.folds if f.name == FOLD)
@@ -334,6 +428,15 @@ def load_all(
     evaluations = {
         source: pd.read_csv(artifacts / f"{FOLD}_{source}.csv") for source in EVALUATION_SOURCES
     }
+
+    prod_manifest_path = artifacts / f"{PRODUCTION_RUN}_manifest.json"
+    prod_forecasts_path = artifacts / f"{PRODUCTION_RUN}_forecasts.csv"
+    prod: tuple[dict, pd.DataFrame] | None = None
+    if prod_manifest_path.exists() and prod_forecasts_path.exists():
+        prod_manifest = json.loads(prod_manifest_path.read_text())
+        _check_hash(data, sha, prod_manifest, PRODUCTION_RUN)
+        prod = (prod_manifest, pd.read_csv(prod_forecasts_path))
+
     with engine.begin() as conn:
         apply_schema(conn, schema)
     with engine.begin() as conn:
@@ -346,7 +449,21 @@ def load_all(
             forecasts=forecasts,
             evaluations=evaluations,
         )
-    return {"data_version_id": data_version_id, "model_run_id": run_id}
+        production_run_id = (
+            load_production_run(
+                conn,
+                data_version_id=data_version_id,
+                manifest=prod[0],
+                forecasts=prod[1],
+            )
+            if prod is not None
+            else None
+        )
+    return {
+        "data_version_id": data_version_id,
+        "model_run_id": run_id,
+        "production_run_id": production_run_id,
+    }
 
 
 def main(argv: Sequence[str] | None = None) -> int:

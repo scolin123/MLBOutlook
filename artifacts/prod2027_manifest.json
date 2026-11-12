@@ -1,0 +1,31 @@
+{
+  "run": "prod2027",
+  "run_kind": "production",
+  "target_season": 2027,
+  "features_through": 2026,
+  "config": "extended",
+  "train_targets": [
+    2016,
+    2017,
+    2018,
+    2019,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "n_forecast": 465,
+  "data_path": "data/processed/hitter_seasons.parquet",
+  "data_sha256": "b164c087e6186d989f52bebdcc1b1153f25f7de5d8f2f6b8ddb003c906039cd8",
+  "data_rows": 9804,
+  "model_version": "ridge_rel+resid_q_pa@ab710f79e5c7",
+  "freeze_tag": "design-freeze-v1",
+  "freeze_commit": "ab710f79e5c74dd367debb4f66bccec231ce3135",
+  "generated_from_commit": "9a2cd09fe3da8bfd440e5a82188f83dcf07b4002",
+  "generated_at": "2026-11-12T14:26:40+00:00",
+  "interval_level": 0.8,
+  "threshold": 0.03,
+  "comps_k": 10
+}

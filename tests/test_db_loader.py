@@ -68,6 +68,26 @@ def test_every_prediction_row_carries_model_and_data_version():
     assert rows[1]["point_woba"] is None  # NaN never becomes zero
 
 
+def test_production_prediction_rows_leave_the_outcome_columns_out():
+    """2027 has no outcome, so a production row must not carry one -- not even as NULL input."""
+    columns = loader.PRODUCTION_PREDICTION_COLUMNS
+    assert set(columns) == set(loader.PREDICTION_COLUMNS) - {"y_woba", "y_pa"}
+    assert "actual_woba" not in columns.values()
+    assert "actual_pa" not in columns.values()
+
+    forecasts = pd.DataFrame(
+        {c: [0.3] for c in columns} | {"player_id": [1], "target_season": [2027]}
+    )
+    rows = loader.prediction_rows(
+        forecasts, model_run_id=9, model_version="m@abc", data_version_id=4, columns=columns
+    )
+    assert len(rows) == 1
+    assert set(rows[0]) == {"model_run_id", "model_version", "data_version_id"} | set(
+        columns.values()
+    )
+    assert rows[0]["target_season"] == 2027
+
+
 def test_prediction_rows_refuse_a_frame_missing_columns():
     with pytest.raises(ValueError, match="missing"):
         loader.prediction_rows(
