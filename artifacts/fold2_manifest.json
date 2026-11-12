@@ -1,0 +1,12 @@
+{
+  "fold": "fold2",
+  "target_season": 2025,
+  "features_through": 2024,
+  "data_path": "data/processed/hitter_seasons.parquet",
+  "data_sha256": "b164c087e6186d989f52bebdcc1b1153f25f7de5d8f2f6b8ddb003c906039cd8",
+  "data_rows": 9804,
+  "model_version": "ridge_rel+resid_q_pa@ab710f79e5c7",
+  "generated_from_commit": "a906d13cdd4707f4aab2b98b8431f964a8bcc003",
+  "generated_at": "2026-11-12T14:22:35+00:00",
+  "threshold": 0.03
+}
