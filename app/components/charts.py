@@ -5,7 +5,7 @@ from __future__ import annotations
 import pandas as pd
 import plotly.graph_objects as go
 
-from components.data import FEATURES_THROUGH, TARGET_SEASON
+from components.data import FORECAST_FEATURES_THROUGH, FORECAST_SEASON
 from components.style import BLUE, FORECAST, GREY, NAVY, RED, percentile_color
 
 LAYOUT = dict(
@@ -18,16 +18,21 @@ LAYOUT = dict(
 
 
 def history_chart(history: pd.DataFrame, forecast: pd.Series) -> go.Figure:
-    """wOBA and xwOBA through the last feature season, the forecast with its 80% interval,
-    and the target season's actual wOBA marked as hindsight."""
-    seen = history.loc[history["season"] <= FEATURES_THROUGH]
+    """wOBA and xwOBA through the last season the forecast reads, then the forecast itself.
+
+    Marcel sits beside it for comparison. There is no actual-outcome marker and there is
+    nothing to put in one: the shaded band to the right of the history is a season that has
+    not been played.
+    """
+    seen = history.loc[history["season"] <= FORECAST_FEATURES_THROUGH]
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=seen["season"], y=seen["woba"], name="wOBA",
                              mode="lines+markers", line=dict(color=NAVY, width=2.5)))
     fig.add_trace(go.Scatter(x=seen["season"], y=seen["xwoba"], name="xwOBA",
                              mode="lines+markers", line=dict(color=GREY, dash="dot")))
     fig.add_trace(go.Scatter(
-        x=[TARGET_SEASON], y=[forecast["ridge_rel"]], name=f"{TARGET_SEASON} forecast (80%)",
+        x=[FORECAST_SEASON], y=[forecast["ridge_rel"]],
+        name=f"{FORECAST_SEASON} forecast (80%)",
         mode="markers", marker=dict(color=FORECAST, size=13, symbol="diamond"),
         error_y=dict(type="data", symmetric=False,
                      array=[forecast["hi"] - forecast["ridge_rel"]],
@@ -35,17 +40,17 @@ def history_chart(history: pd.DataFrame, forecast: pd.Series) -> go.Figure:
                      color=FORECAST, thickness=2, width=8),
     ))
     fig.add_trace(go.Scatter(
-        x=[TARGET_SEASON], y=[forecast["marcel"]], name="Marcel",
+        x=[FORECAST_SEASON], y=[forecast["marcel"]], name="Marcel",
         mode="markers", marker=dict(color=BLUE, size=10, symbol="line-ew-open",
                                     line=dict(width=3)),
     ))
-    fig.add_trace(go.Scatter(
-        x=[TARGET_SEASON], y=[forecast["y_woba"]], name=f"{TARGET_SEASON} actual (hindsight)",
-        mode="markers", marker=dict(color=RED, size=10, symbol="x"),
-    ))
-    fig.add_vrect(x0=FEATURES_THROUGH + 0.5, x1=TARGET_SEASON + 0.5, fillcolor="#FFF4E8",
-                  line_width=0, layer="below")
-    fig.update_layout(**LAYOUT, title="wOBA history and the backtest forecast", height=380)
+    fig.add_vrect(x0=FORECAST_FEATURES_THROUGH + 0.5, x1=FORECAST_SEASON + 0.5,
+                  fillcolor="#FFF4E8", line_width=0, layer="below")
+    fig.update_layout(
+        **LAYOUT,
+        title=f"wOBA history and the {FORECAST_SEASON} forecast (not yet played)",
+        height=380,
+    )
     fig.update_xaxes(dtick=1, title=None)
     fig.update_yaxes(title="wOBA", tickformat=".3f")
     return fig
@@ -75,7 +80,7 @@ def percentile_chart(pcts: pd.DataFrame) -> go.Figure:
         hovertemplate="%{y}: %{x}th percentile<extra></extra>",
     ))
     fig.update_layout(**LAYOUT, height=40 + 34 * len(pcts),
-                      title=f"{FEATURES_THROUGH} percentile ranks (100+ PA hitters)")
+                      title=f"{FORECAST_FEATURES_THROUGH} percentile ranks (100+ PA hitters)")
     fig.update_xaxes(range=[0, 108], showgrid=False, showticklabels=False)
     return fig
 
@@ -130,7 +135,8 @@ def disagreement_scatter(board: pd.DataFrame) -> go.Figure:
     hi = float(max(board["marcel"].max(), board["ridge_rel"].max())) + 0.005
     fig.add_trace(go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines", showlegend=False,
                              line=dict(color=GREY, dash="dash"), hoverinfo="skip"))
-    fig.update_layout(**LAYOUT, title="Model forecast vs Marcel", height=420, showlegend=False)
+    fig.update_layout(**LAYOUT, title=f"{FORECAST_SEASON} model forecast vs Marcel",
+                  height=420, showlegend=False)
     fig.update_xaxes(title="Marcel wOBA", tickformat=".3f")
     fig.update_yaxes(title="model wOBA", tickformat=".3f")
     return fig

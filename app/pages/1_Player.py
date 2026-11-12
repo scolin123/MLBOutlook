@@ -1,4 +1,4 @@
-"""Player page: history, the backtest forecast, probabilities, the Marcel gap, and comps."""
+"""Player page: history, the 2027 forecast, probabilities, the Marcel gap, and comps."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import streamlit as st  # noqa: E402
 from components import cached, charts, data  # noqa: E402
 from components.style import card, pct, setup, signed, woba  # noqa: E402
 
-setup("Player")
+setup("Player", data.FORECAST_LABEL)
 cached.require_files()
 
 forecasts = cached.forecasts().sort_values("name")
@@ -30,13 +30,13 @@ hist = data.history(df, player_id)
 
 st.title(row["name"])
 st.caption(
-    f"Age {int(row['age_target'])} in {data.TARGET_SEASON} | {int(row['pa_lag1'])} PA in "
-    f"{data.FEATURES_THROUGH}"
+    f"Age {int(row['age_target'])} in {data.FORECAST_SEASON} | {int(row['pa_lag1'])} PA in "
+    f"{data.FORECAST_FEATURES_THROUGH}"
 )
 
 c1, c2, c3, c4 = st.columns(4)
 with c1:
-    card(f"{data.TARGET_SEASON} forecast", woba(row["ridge_rel"]),
+    card(f"{data.FORECAST_SEASON} forecast", woba(row["ridge_rel"]),
          f"80% interval {woba(row['lo'])} - {woba(row['hi'])}")
 with c2:
     card("vs Marcel", signed(row["model_minus_marcel"]), f"Marcel {woba(row['marcel'])}")
@@ -44,9 +44,11 @@ with c3:
     card("Breakout / regression", f"{pct(row['p_breakout'])} / {pct(row['p_regression'])}",
          f"vs 3-yr weighted baseline {woba(row['weighted3'])} +/- .030")
 with c4:
-    covered = "inside" if row["covered"] else "outside"
-    card(f"{data.TARGET_SEASON} actual (hindsight)", woba(row["y_woba"]),
-         f"{int(row['y_pa'])} PA, {covered} the interval")
+    # Where the outcome card used to be. There is no 2027 outcome, and the nearest honest
+    # thing is what hitters who looked like this one went on to do.
+    card("Comps' next year",
+         f"{int(row['comps_played_next'])} of {int(row['comps_n'])} played",
+         f"median change {signed(row['comps_median_delta_woba_rel'])} (league-relative)")
 
 left, right = st.columns([3, 2])
 with left:
@@ -55,19 +57,20 @@ with left:
     st.plotly_chart(charts.probability_bar(row), use_container_width=True,
                     config={"displayModeBar": False})
     st.caption(
-        "Breakout = actual wOBA at least .030 above the weighted three-year baseline; "
-        "regression = at least .030 below. Read off the same distribution as the interval."
+        f"Breakout = {data.FORECAST_SEASON} wOBA at least .030 above the weighted three-year "
+        "baseline; regression = at least .030 below. Read off the same distribution as the "
+        "interval, so they cannot contradict it."
     )
 with right:
     pcts = data.percentiles(df, player_id)
     if pcts.empty:
-        st.info(f"No {data.FEATURES_THROUGH} percentile data (fewer than 100 PA).")
+        st.info(f"No {data.FORECAST_FEATURES_THROUGH} percentile data (fewer than 100 PA).")
     else:
         st.plotly_chart(charts.percentile_chart(pcts), use_container_width=True,
                         config={"displayModeBar": False})
 
 st.subheader("Season lines")
-table = hist.loc[hist["season"] <= data.FEATURES_THROUGH,
+table = hist.loc[hist["season"] <= data.FORECAST_FEATURES_THROUGH,
                  ["season", "age", "pa", "woba", "xwoba", "k_pct", "bb_pct", "avg_ev",
                   "barrel_pct", "hard_hit_pct"]]
 st.dataframe(
@@ -85,16 +88,22 @@ st.dataframe(
         "hard_hit_pct": st.column_config.NumberColumn("Hard-hit%", format="%.3f"),
     },
 )
+st.caption(
+    f"Every season the {data.FORECAST_SEASON} forecast was allowed to read, and no later one."
+)
 
 st.subheader("Historical comps")
 st.caption(
-    f"The 10 nearest player-seasons to this hitter's {data.FEATURES_THROUGH}, on age and "
-    "league-relative wOBA, xwOBA, K%, BB% and contact quality. Comp seasons and their "
-    f"following years are all before {data.FEATURES_THROUGH}."
+    f"The 10 nearest player-seasons to this hitter's {data.FORECAST_FEATURES_THROUGH}, on age "
+    "and league-relative wOBA, xwOBA, K%, BB% and contact quality. Comp seasons are before "
+    f"{data.FORECAST_FEATURES_THROUGH} and their following years run through it, so all of it "
+    "was knowable when the forecast was made."
 )
 found = cached.comps(player_id)
 if found is None:
-    st.info(f"No comps: the {data.FEATURES_THROUGH} line is missing a comp feature.")
+    st.info(
+        f"No comps: the {data.FORECAST_FEATURES_THROUGH} line is missing a comp feature."
+    )
 else:
     comps, summary = found
     st.markdown(

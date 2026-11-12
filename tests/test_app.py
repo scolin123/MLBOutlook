@@ -1,4 +1,13 @@
-"""The Streamlit app: pages render headless, data stops at 2025, wording rules hold."""
+"""The Streamlit app: pages render headless, the labelling is right, the guards hold.
+
+The app shows the prod2027 forecasts. Three things these tests are for:
+
+- every page says which season it is about, and the forecast pages say there is no outcome;
+- nothing player-level carries a 2027 outcome column, because there is no such thing;
+- the fold 3 holdout is still reachable only as aggregate tables. 2026 season lines do now
+  appear -- they are what the 2027 forecast is built from -- but the per-player holdout
+  scoring rows in `fold3_players.csv` are not reachable from any page.
+"""
 
 from __future__ import annotations
 
@@ -17,12 +26,16 @@ sys.path.insert(0, str(APP))
 from components import data  # noqa: E402
 from components.style import percentile_color, signed, woba  # noqa: E402
 
-PAGES = [
-    APP / "Home.py",
-    APP / "pages" / "1_Player.py",
-    APP / "pages" / "2_Projection_disagreements.py",
-    APP / "pages" / "3_Model_performance.py",
-]
+HOME = APP / "Home.py"
+PLAYER = APP / "pages" / "1_Player.py"
+BOARD = APP / "pages" / "2_Projection_disagreements.py"
+PERFORMANCE = APP / "pages" / "3_Model_performance.py"
+PAGES = [HOME, PLAYER, BOARD, PERFORMANCE]
+# Which banner each page must carry: the forecast pages make a claim about an unplayed
+# season, the performance page one about two scored folds. Mixing them up is the mistake
+# worth a test.
+FORECAST_PAGES = [HOME, PLAYER, BOARD]
+SCORED_PAGES = [PERFORMANCE]
 
 
 def _have_artifacts() -> bool:
@@ -42,18 +55,41 @@ def test_no_page_calls_a_player_undervalued():
         assert "undervalued" not in path.read_text(encoding="utf-8").lower(), path
 
 
-def test_every_page_carries_the_backtest_banner():
-    for page in PAGES:
+def test_every_page_declares_which_season_it_is_about():
+    """`setup` takes the banner with no default, so a page cannot inherit the wrong claim."""
+    import inspect
+
+    from components.style import setup
+
+    assert "banner" in inspect.signature(setup).parameters
+    assert inspect.signature(setup).parameters["banner"].default is inspect.Parameter.empty
+    for page in FORECAST_PAGES:
         assert "setup(" in page.read_text(encoding="utf-8"), page
+        assert "data.FORECAST_LABEL" in page.read_text(encoding="utf-8"), page
+    for page in SCORED_PAGES:
+        assert "data.BACKTEST_LABEL" in page.read_text(encoding="utf-8"), page
+
+
+def test_the_forecast_label_says_the_season_has_not_been_played():
+    assert "2027 forecasts" in data.FORECAST_LABEL
+    assert "data through 2026" in data.FORECAST_LABEL
+    assert "has not been played" in data.FORECAST_LABEL
     assert "Fold 2 backtest" in data.BACKTEST_LABEL
     assert "Not a live projection" in data.BACKTEST_LABEL
 
 
-def test_the_backtest_is_fold2_and_never_the_holdout_season():
+def test_the_forecast_is_prod2027_from_data_through_2026():
+    assert data.FORECAST_RUN == "prod2027"
+    assert data.FORECAST_SEASON == 2027
+    assert data.FORECAST_FEATURES_THROUGH == 2026
+    # The last season that exists, and the last the forecast reads. They are the same season.
+    assert data.LAST_VISIBLE_SEASON == 2026
+
+
+def test_the_scored_folds_are_still_fold2_and_fold3():
     assert data.FOLD == "fold2"
     assert data.TARGET_SEASON == 2025
     assert data.FEATURES_THROUGH == 2024
-    assert data.LAST_VISIBLE_SEASON < 2026
 
 
 def test_the_holdout_is_reachable_only_as_aggregate_tables():
@@ -105,17 +141,35 @@ def test_percentile_colors_run_blue_to_red():
 
 
 @needs_artifacts
-def test_loaded_seasons_stop_at_2025():
-    assert data.seasons()["season"].max() == 2025
+def test_loaded_seasons_stop_at_the_last_feature_season():
+    assert data.seasons()["season"].max() == data.FORECAST_FEATURES_THROUGH
 
 
 @needs_artifacts
-def test_forecasts_are_the_fold2_rows():
+def test_forecasts_are_the_prod2027_rows():
     f = data.forecasts()
-    assert len(f) == 362
-    assert set(f["target_season"]) == {2025}
+    assert len(f) == 465
+    assert set(f["target_season"]) == {2027}
     assert ((f["p_breakout"] + f["p_stable"] + f["p_regression"]) - 1).abs().max() < 1e-9
     assert (f["lo"] <= f["hi"]).all()
+    assert (f["model_minus_marcel"] == f["ridge_rel_minus_marcel"]).all()
+
+
+@needs_artifacts
+def test_nothing_player_level_claims_a_2027_outcome():
+    """The season has not happened. A column saying otherwise would be fabricated."""
+    f = data.forecasts()
+    assert not [c for c in f.columns if c.startswith("y_")]
+    assert not {"covered", "advantage", "actual_minus_forecast"} & set(f.columns)
+
+
+@needs_artifacts
+def test_the_forecast_manifest_names_the_frozen_model():
+    info = data.forecast_manifest()
+    assert info["run"] == "prod2027"
+    assert info["target_season"] == 2027
+    assert info["features_through"] == 2026
+    assert info["freeze_tag"] == data.HOLDOUT_TAG
 
 
 @needs_artifacts
@@ -134,7 +188,8 @@ def test_page_renders_without_error(page):
 
     at = AppTest.from_file(str(page), default_timeout=120).run()
     assert not at.exception, [e.value for e in at.exception]
-    assert any("Fold 2 backtest" in m.value for m in at.markdown)
+    expected = data.BACKTEST_LABEL if page in SCORED_PAGES else data.FORECAST_LABEL
+    assert any(expected in m.value for m in at.markdown), page
 
 
 @needs_artifacts
@@ -142,7 +197,7 @@ def test_page_renders_without_error(page):
 def test_model_performance_shows_the_holdout_verdict_and_both_folds():
     from streamlit.testing.v1 import AppTest
 
-    at = AppTest.from_file(str(PAGES[3]), default_timeout=120).run()
+    at = AppTest.from_file(str(PERFORMANCE), default_timeout=120).run()
     assert not at.exception, [e.value for e in at.exception]
 
     verdict = data.holdout_artifact("verdict")
@@ -172,7 +227,7 @@ def test_model_performance_shows_the_holdout_verdict_and_both_folds():
 def test_board_sorts_change_the_order():
     from streamlit.testing.v1 import AppTest
 
-    at = AppTest.from_file(str(PAGES[2]), default_timeout=120).run()
+    at = AppTest.from_file(str(BOARD), default_timeout=120).run()
     first = at.dataframe[0].value.iloc[0]["name"]
     at.selectbox[0].set_value("Model below Marcel").run()
     assert not at.exception
@@ -185,7 +240,7 @@ def test_player_page_follows_the_selection():
 
     f = data.forecasts().sort_values("name")
     target = int(f["player_id"].iloc[5])
-    at = AppTest.from_file(str(PAGES[1]), default_timeout=120).run()
+    at = AppTest.from_file(str(PLAYER), default_timeout=120).run()
     at.selectbox[0].set_value(target).run()
     assert not at.exception
     assert at.title[0].value == f["name"].iloc[5]

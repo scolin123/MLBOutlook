@@ -63,7 +63,7 @@ def fold_detail(point: pd.DataFrame, coverage: pd.DataFrame, probs: pd.DataFrame
     )
 
 
-setup("Model performance")
+setup("Model performance", data.BACKTEST_LABEL)
 cached.require_files()
 st.title("Model performance")
 
@@ -195,8 +195,9 @@ f3, f2 = st.tabs(
 with f3:
     st.caption(
         f"Run once from the tagged commit, on {data.HOLDOUT_TARGET_SEASON} outcomes with "
-        f"features through {data.HOLDOUT_FEATURES_THROUGH}. Aggregate scores only: no "
-        f"{data.HOLDOUT_TARGET_SEASON} player appears anywhere in this app."
+        f"features through {data.HOLDOUT_FEATURES_THROUGH}. Aggregate scores only: the "
+        f"per-player {data.HOLDOUT_TARGET_SEASON} scoring rows are not reachable from this "
+        f"app, so no hitter's holdout result can be looked up one at a time."
     )
     fold_detail(
         cached.holdout_artifact("point"), cached.holdout_artifact("interval_coverage"),

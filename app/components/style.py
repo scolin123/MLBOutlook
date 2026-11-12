@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-from components.data import BACKTEST_LABEL
-
 NAVY = "#0A2240"
 RED = "#D22D49"
 BLUE = "#2F6DB5"
@@ -41,10 +39,17 @@ def percentile_color(pct: float) -> str:
     return f"#{r:02X}{g:02X}{bl:02X}"
 
 
-def setup(title: str) -> None:
+def setup(title: str, banner: str) -> None:
+    """Page chrome plus the banner that says what season the page is about.
+
+    `banner` has no default on purpose. The app now carries both kinds of page -- 2027
+    forecasts with no outcome, and the scored folds with one -- and a page that forgot to say
+    which it was would inherit the wrong claim silently. Making it an argument means the
+    mislabelling cannot happen by omission.
+    """
     st.set_page_config(page_title=f"DiamondIQ - {title}", layout="wide")
     st.markdown(CSS, unsafe_allow_html=True)
-    st.markdown(f'<div class="diq-banner">{BACKTEST_LABEL}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="diq-banner">{banner}</div>', unsafe_allow_html=True)
 
 
 def card(label: str, value: str, sub: str = "") -> None:
